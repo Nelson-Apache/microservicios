@@ -11,10 +11,13 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copiar el código de la aplicación
-COPY app.py .
+COPY main.py .
+COPY app/ ./app/
 
 # Exponer el puerto 8080
 EXPOSE 8080
 
 # Comando para ejecutar la aplicación
-CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8080"]
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8080"]
+
+#Vale la pena aplicar la practica un dockerfile por stages
