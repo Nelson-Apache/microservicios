@@ -1,23 +1,23 @@
-# Usar imagen base de Python
-FROM python:3.11-slim
+# ─── Stage 1: Builder ─────────────────────────────────────────────
+FROM python:3.11-slim AS builder
 
-# Establecer directorio de trabajo
 WORKDIR /app
 
-# Copiar archivo de dependencias
+RUN python -m venv /app/venv
 COPY requirements.txt .
+RUN /app/venv/bin/pip install --no-cache-dir -r requirements.txt
 
-# Instalar dependencias
-RUN pip install --no-cache-dir -r requirements.txt
+# ─── Stage 2: Runtime ─────────────────────────────────────────────
+FROM python:3.11-slim AS runtime
 
-# Copiar el código de la aplicación
+WORKDIR /app
+
+COPY --from=builder /app/venv /app/venv
 COPY main.py .
 COPY app/ ./app/
 
-# Exponer el puerto 8080
+ENV PATH="/app/venv/bin:$PATH"
+
 EXPOSE 8080
 
-# Comando para ejecutar la aplicación
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8080"]
-
-#Vale la pena aplicar la practica un dockerfile por stages
