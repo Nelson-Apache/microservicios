@@ -1,0 +1,53 @@
+services:
+
+  empleados-service:
+    build: ./empleados-service
+    ports:
+      - "8080:8000"
+    environment:
+      - DATABASE_URL=postgresql://postgres:postgres@database-empleados:5432/empleadosdb
+    depends_on:
+      - database-empleados
+    networks:
+      - microservices-net
+
+  departamentos-service:
+    build: ./departamentos-service
+    ports:
+      - "8081:8000"
+    environment:
+      - DATABASE_URL=postgresql://postgres:postgres@database-departamentos:5432/departamentosdb
+    depends_on:
+      - database-departamentos
+    networks:
+      - microservices-net
+
+  database-departamentos:
+    image: postgres:15
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=departamentosdb
+    volumes:
+      - departamentos-data:/var/lib/postgresql/data
+    networks:
+      - microservices-net
+
+  database-empleados:
+    image: postgres:15
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=empleadosdb
+    volumes:
+      - empleados-data:/var/lib/postgresql/data
+    networks:
+      - microservices-net
+
+volumes:
+  empleados-data:
+  departamentos-data:
+
+networks:
+  microservices-net:
+    driver: bridge
