@@ -4,3 +4,8 @@ pydantic==2.9.2
 
 sqlalchemy
 psycopg2-binary
+httpx
+email-validator
+tenacity
+
+

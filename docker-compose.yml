@@ -1,5 +1,8 @@
 services:
 
+  # ─────────────────────────────────────
+  # Servicio de Empleados (Python/FastAPI)
+  # ─────────────────────────────────────
   empleados-service:
     build: ./empleados-service
     ports:
@@ -7,23 +10,76 @@ services:
     environment:
       - DATABASE_URL=postgresql://postgres:postgres@database-empleados:5432/empleadosdb
     depends_on:
-      - database-empleados
+      database-empleados:
+        condition: service_healthy
+      departamentos-service:
+        condition: service_started
     networks:
       - microservices-net
+    restart: on-failure
 
+  # ─────────────────────────────────────
+  # Servicio de Departamentos (Java/Spring Boot) — multi-stage Dockerfile
+  # ─────────────────────────────────────
   departamentos-service:
-    build: ./departamentos-service
+    build:
+      context: ./departamentos-service
+      target: runtime
     ports:
-      - "8081:8000"
+      - "8081:8080"
     environment:
-      - DATABASE_URL=postgresql://postgres:postgres@database-departamentos:5432/departamentosdb
+      - DATABASE_URL=jdbc:postgresql://database-departamentos:5432/departamentosdb
+      - DB_USER=postgres
+      - DB_PASSWORD=postgres
+      - PORT=8080
     depends_on:
-      - database-departamentos
+      database-departamentos:
+        condition: service_healthy
     networks:
       - microservices-net
+    restart: on-failure
 
+  # ─────────────────────────────────────
+  # Servicio de Notificaciones (Node.js/Express)
+  # ─────────────────────────────────────
+  notificaciones-service:
+    build:
+      context: ./notificaciones-service
+      target: runtime
+    ports:
+      - "8082:3000"
+    environment:
+      - PORT=3000
+      - NODE_ENV=production
+    networks:
+      - microservices-net
+    restart: on-failure
+
+  # ─────────────────────────────────────
+  # Servicio de Reportes (Go)
+  # ─────────────────────────────────────
+  reportes-service:
+    build:
+      context: ./reportes-service
+      target: runtime
+    ports:
+      - "8083:3000"
+    environment:
+      - PORT=3000
+      - EMPLEADOS_SERVICE_URL=http://empleados-service:8000
+      - DEPARTAMENTOS_SERVICE_URL=http://departamentos-service:8080
+    depends_on:
+      - empleados-service
+      - departamentos-service
+    networks:
+      - microservices-net
+    restart: on-failure
+
+  # ─────────────────────────────────────
+  # Base de Datos — Departamentos (PostgreSQL)
+  # ─────────────────────────────────────
   database-departamentos:
-    image: postgres:15
+    image: postgres:15-alpine
     environment:
       - POSTGRES_USER=postgres
       - POSTGRES_PASSWORD=postgres
@@ -32,9 +88,18 @@ services:
       - departamentos-data:/var/lib/postgresql/data
     networks:
       - microservices-net
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U postgres -d departamentosdb" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
 
+  # ─────────────────────────────────────
+  # Base de Datos — Empleados (PostgreSQL)
+  # ─────────────────────────────────────
   database-empleados:
-    image: postgres:15
+    image: postgres:15-alpine
     environment:
       - POSTGRES_USER=postgres
       - POSTGRES_PASSWORD=postgres
@@ -43,11 +108,26 @@ services:
       - empleados-data:/var/lib/postgresql/data
     networks:
       - microservices-net
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U postgres -d empleadosdb" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
 
+# ─────────────────────────────────────
+# Volúmenes persistentes
+# ─────────────────────────────────────
 volumes:
   empleados-data:
+    name: vol-empleados
   departamentos-data:
+    name: vol-departamentos
 
+# ─────────────────────────────────────
+# Red interna de microservicios
+# ─────────────────────────────────────
 networks:
   microservices-net:
     driver: bridge
+    name: microservices-network
