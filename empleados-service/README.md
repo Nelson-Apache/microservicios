@@ -54,11 +54,79 @@ GET /empleados?pagina=2&por_pagina=5&departamento_id=IT&activo=true
 
 ## 🔄 Patrones de Resiliencia
 
-### Validación con Departamentos
+Este servicio implementa **múltiples capas de resiliencia** para proteger la comunicación con el servicio de departamentos:
 
-- **Reintentos automáticos**: Hasta 3 intentos con espera exponencial (2s → 4s → 8s)
-- **Timeout**: 5 segundos máximo por solicitud al servicio de departamentos
-- **Validación previa**: Verifica existencia del departamento antes de crear empleado
+### 1. **Retry Pattern con Backoff Exponencial** (tenacity)
+- **Reintentos**: Hasta 3 intentos automáticos
+- **Espera**: Exponencial → 1s → 2s → 4s
+- **Disparadores**: Timeout o errores de conexión
+
+### 2. **Circuit Breaker Pattern** (pybreaker)
+- **Umbral de fallos**: Se abre después de 5 fallos consecutivos
+- **Timeout**: Permanece abierto por 60 segundos
+- **Estados**:
+  - `closed`: Funcionamiento normal
+  - `open`: Servicio con problemas, usando cache
+  - `half-open`: Probando recuperación
+
+### 3. **Cache con TTL** (cachetools)
+- **Capacidad**: Hasta 100 departamentos
+- **TTL**: 5 minutos (300 segundos)
+- **Estrategia**: Fallback automático cuando el servicio falla
+
+### 4. **Timeout Management**
+- **Timeout por request**: 5 segundos
+- **Prevención**: Evita bloqueos indefinidos
+
+### Flujo de Resiliencia
+
+```
+Cliente solicita validar departamento
+        ↓
+    ¿Circuit Breaker cerrado?
+    ├─ Sí → Llamar al servicio
+    │        ↓
+    │    ¿Responde?
+    │    ├─ Sí → Guardar en cache ✓
+    │    └─ No → Reintentar (3x)
+    │             ↓
+    │         ¿Todos fallan?
+    │         ├─ Sí → Abrir Circuit Breaker
+    │         │        Usar cache como fallback
+    │         └─ No → Retornar respuesta ✓
+    │
+    └─ No → Circuit abierto
+             Usar cache directamente
+             (Sin llamar al servicio)
+```
+
+### Monitoreo del Circuit Breaker
+
+Endpoint de debug para verificar el estado:
+
+```bash
+curl http://localhost:8000/empleados/debug/circuit-breaker
+```
+
+**Respuesta de ejemplo**:
+```json
+{
+  "service": "departamentos-service",
+  "circuit_breaker": {
+    "state": "closed",
+    "fail_counter": 0,
+    "fail_max": 5,
+    "timeout_duration": 60,
+    "cache_size": 3,
+    "cache_maxsize": 100
+  },
+  "description": {
+    "closed": "Servicio funcionando normalmente",
+    "open": "Circuit Breaker abierto - usando cache como fallback",
+    "half-open": "Probando recuperación del servicio"
+  }
+}
+```
 
 ## 📖 Documentación OpenAPI
 

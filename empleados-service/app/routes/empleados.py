@@ -297,3 +297,55 @@ async def eliminar_empleado(id: int):
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"No se encontró ningún empleado con el id {id}.",
         )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# GET /empleados/debug/circuit-breaker  — Estado del Circuit Breaker
+# ─────────────────────────────────────────────────────────────────────────────
+
+@router.get(
+    "/debug/circuit-breaker",
+    summary="Obtener estado del Circuit Breaker",
+    tags=["debug"],
+    responses={
+        200: {"description": "Estado del Circuit Breaker"}
+    }
+)
+async def obtener_estado_circuit_breaker():
+    """
+    Retorna el estado actual del Circuit Breaker que protege
+    las llamadas al servicio de departamentos.
+    
+    **Estados posibles**:
+    - `closed`: Funcionamiento normal (servicio saludable)
+    - `open`: Circuit Breaker abierto (servicio con problemas, usando cache)
+    - `half-open`: Probando recuperación del servicio
+    
+    **Información incluida**:
+    - `state`: Estado actual del circuit breaker
+    - `fail_counter`: Número de fallos consecutivos
+    - `fail_max`: Máximo de fallos antes de abrir el circuito
+    - `timeout_duration`: Tiempo en estado abierto antes de intentar recovery
+    - `cache_size`: Cantidad de departamentos en cache
+    - `cache_maxsize`: Tamaño máximo del cache
+    """
+    state = departamentos_client.get_circuit_breaker_state()
+    
+    logger.info(
+        "Estado del Circuit Breaker consultado",
+        extra={
+            "event": "circuit_breaker_status",
+            "state": state["state"],
+            "fail_counter": state["fail_counter"]
+        }
+    )
+    
+    return {
+        "service": "departamentos-service",
+        "circuit_breaker": state,
+        "description": {
+            "closed": "Servicio funcionando normalmente",
+            "open": "Circuit Breaker abierto - usando cache como fallback",
+            "half-open": "Probando recuperación del servicio"
+        }
+    }
