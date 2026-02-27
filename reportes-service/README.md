@@ -7,9 +7,11 @@ Microservicio de reportes y estadísticas del sistema. Implementado en **Go** co
 | Componente | Tecnología |
 |---|---|
 | Lenguaje | Go 1.21 |
-| Router | gorilla/mux |
+| Router | net/http (stdlib) |
+| Logging | uber/zap (JSON format) |
 | OpenAPI | swaggo/swag + swaggo/http-swagger |
 | HTTP Client | net/http (stdlib) con timeout 5s |
+| Testing | Go testing package (stdlib) |
 | Dockerfile | Multi-stage (golang:alpine → alpine) |
 
 ## 📁 Estructura
@@ -30,9 +32,28 @@ reportes-service/
 
 | Método | Ruta | Descripción | Códigos |
 |--------|------|-------------|---------|
-| GET | `/` | Health check | 200 |
+| GET | `/` | Health check básico | 200 |
+| GET | `/health` | Health check con conectividad | 200, 503 |
 | GET | `/reportes/resumen` | Resumen del sistema | 200, 500 |
 | GET | `/docs/*` | Swagger UI | 200 |
+
+### Health Check Detallado (`/health`)
+
+Verifica la conectividad con los servicios dependientes:
+
+```json
+{
+  "status": "healthy",
+  "service": "reportes-service",
+  "version": "1.0.0",
+  "checks": {
+    "empleados_service": "ok",
+    "departamentos_service": "ok"
+  }
+}
+```
+
+**Estado**: `healthy` (200) si todos los servicios responden, `degraded` (503) si alguno falla.
 
 ## 📊 Resumen del Sistema (`/reportes/resumen`)
 
@@ -62,20 +83,108 @@ docker run -p 8083:3000 \
 
 ## 🔌 Variables de Entorno
 
-| Variable | Default | Descripción |
-|----------|---------|-------------|
-| `PORT` | `3000` | Puerto del servidor |
-| `EMPLEADOS_SERVICE_URL` | `http://empleados-service:8000` | URL del servicio de empleados |
-| `DEPARTAMENTOS_SERVICE_URL` | `http://departamentos-service:8000` | URL del servicio de departamentos |
+| Variable | Default | Descripción | Requerido |
+|----------|---------|-------------|-----------|
+| `PORT` | `3000` | Puerto del servidor | ❌ No |
+| `EMPLEADOS_SERVICE_URL` | `http://empleados-service:8000` | URL del servicio de empleados | ✅ Sí |
+| `DEPARTAMENTOS_SERVICE_URL` | `http://departamentos-service:8080` | URL del servicio de departamentos | ✅ Sí |
 
-## 🧪 Pruebas rápidas
+## 📊 JSON Logging
+
+El servicio utiliza **uber/zap** para generar logs estructurados en formato JSON:
+
+```json
+{
+  "level": "info",
+  "ts": 1705320000.123,
+  "caller": "main.go:123",
+  "msg": "Resumen generado exitosamente",
+  "event": "resumen_created",
+  "total_empleados": 15,
+  "total_departamentos": 3
+}
+```
+
+Configuración de logger:
+- **Production mode**: JSON estructurado con sampling
+- **Events tracked**: server_started, resumen_request, empleados_fetch_error, departamentos_fetch_error
+
+## 🧪 Testing
+
+### Ejecutar tests
 
 ```bash
-# Health check
-curl http://localhost:8083/
+# Ejecutar todos los tests
+go test -v
+
+# Ejecutar con coverage
+go test -cover
+
+# Ver reporte de coverage detallado
+go test -coverprofile=coverage.out
+go tool cover -html=coverage.out
+
+# Ejecutar tests específicos
+go test -v -run TestResumenHandler
+```
+
+### Tests implementados
+
+El servicio incluye **tests unitarios con Go testing package**:
+
+- ✅ **TestHealthHandler**: Health check básico
+- ✅ **TestDetailedHealthHandler**: Conectividad con servicios (healthy + degraded)
+- ✅ **TestResumenHandler**: Generación de resumen (success + error cases)
+- ✅ **TestGetEmpleadosURL**: Variables de entorno (custom + default)
+- ✅ **TestGetDepartamentosURL**: Variables de entorno (custom + default)
+- ✅ **TestTestConnection**: Validación de conectividad
+
+**Ejemplo de test**:
+```go
+func TestResumenHandler(t *testing.T) {
+    t.Run("debe generar resumen correctamente", func(t *testing.T) {
+        // Mock servers
+        empleadosServer := httptest.NewServer(...)
+        departamentosServer := httptest.NewServer(...)
+        
+        // Test request
+        req := httptest.NewRequest(http.MethodGet, "/reportes/resumen", nil)
+        rec := httptest.NewRecorder()
+        
+        resumenHandler(rec, req)
+        
+        if rec.Code != http.StatusOK {
+            t.Errorf("esperaba 200, obtuvo %d", rec.Code)
+        }
+    })
+}
+```
+
+## 🔧 Pruebas rápidas con curl
+
+```bash
+# Health check básico
+curl http://localhost:3000/
+
+# Health check con conectividad
+curl http://localhost:3000/health
 
 # Resumen del sistema (requiere los otros servicios corriendo)
-curl http://localhost:8083/reportes/resumen
+curl http://localhost:3000/reportes/resumen
+
+# Ver documentación Swagger
+open http://localhost:3000/docs/index.html
+```
+
+**Ejemplo de respuesta del resumen**:
+```json
+{
+  "totalDepartamentos": 3,
+  "totalEmpleados": 15,
+  "fechaConsulta": "2024-01-15T10:30:00Z",
+  "fuenteEmpleados": "http://empleados-service:8000",
+  "fuenteDepartamentos": "http://departamentos-service:8080"
+}
 ```
 
 ## 🔨 Desarrollo local (requiere Go 1.21+)

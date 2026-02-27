@@ -2,19 +2,18 @@ package com.empresa.departamentos.controller;
 
 import com.empresa.departamentos.dto.DepartamentoRequest;
 import com.empresa.departamentos.dto.DepartamentoResponse;
-import com.empresa.departamentos.model.Departamento;
-import com.empresa.departamentos.repository.DepartamentoRepository;
+import com.empresa.departamentos.service.DepartamentoService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.media.Content;
 import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.persistence.EntityNotFoundException;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
-import org.springframework.web.server.ResponseStatusException;
 
 import java.util.List;
 import java.util.Map;
@@ -23,10 +22,10 @@ import java.util.Map;
 @Tag(name = "Departamentos", description = "Operaciones CRUD sobre departamentos organizacionales")
 public class DepartamentoController {
 
-    private final DepartamentoRepository repository;
+    private final DepartamentoService service;
 
-    public DepartamentoController(DepartamentoRepository repository) {
-        this.repository = repository;
+    public DepartamentoController(DepartamentoService service) {
+        this.service = service;
     }
 
     // ─────────────────────────────────────
@@ -58,24 +57,8 @@ public class DepartamentoController {
     })
     public ResponseEntity<DepartamentoResponse> crearDepartamento(
             @Valid @RequestBody DepartamentoRequest request) {
-
-        // Verificar si el ID ya existe
-        if (repository.existsById(request.getId())) {
-            throw new ResponseStatusException(
-                    HttpStatus.BAD_REQUEST,
-                    "Ya existe un departamento con el ID '" + request.getId() + "'.");
-        }
-
-        Departamento departamento = Departamento.builder()
-                .id(request.getId())
-                .nombre(request.getNombre())
-                .descripcion(request.getDescripcion())
-                .build();
-
-        Departamento guardado = repository.save(departamento);
-
-        return ResponseEntity.status(HttpStatus.CREATED)
-                .body(toResponse(guardado));
+        DepartamentoResponse response = service.crear(request);
+        return ResponseEntity.status(HttpStatus.CREATED).body(response);
     }
 
     // ─────────────────────────────────────
@@ -88,9 +71,7 @@ public class DepartamentoController {
             @ApiResponse(responseCode = "500", description = "Error interno del servidor")
     })
     public List<DepartamentoResponse> listarDepartamentos() {
-        return repository.findAll().stream()
-                .map(this::toResponse)
-                .toList();
+        return service.listarTodos();
     }
 
     // ─────────────────────────────────────
@@ -104,21 +85,39 @@ public class DepartamentoController {
             @ApiResponse(responseCode = "500", description = "Error interno del servidor")
     })
     public DepartamentoResponse obtenerDepartamento(@PathVariable String id) {
-        Departamento departamento = repository.findById(id)
-                .orElseThrow(() -> new ResponseStatusException(
-                        HttpStatus.NOT_FOUND,
-                        "Departamento con ID '" + id + "' no encontrado"));
-        return toResponse(departamento);
+        return service.obtenerPorId(id);
     }
 
     // ─────────────────────────────────────
-    // Helper: Entity → DTO
+    // Actualizar departamento
     // ─────────────────────────────────────
-    private DepartamentoResponse toResponse(Departamento entity) {
-        return DepartamentoResponse.builder()
-                .id(entity.getId())
-                .nombre(entity.getNombre())
-                .descripcion(entity.getDescripcion())
-                .build();
+    @PutMapping("/departamentos/{id}")
+    @Operation(summary = "Actualizar un departamento", description = "Actualiza la información de un departamento existente.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Departamento actualizado exitosamente"),
+            @ApiResponse(responseCode = "404", description = "No existe ningún departamento con el ID proporcionado"),
+            @ApiResponse(responseCode = "422", description = "Error de validación en los datos enviados"),
+            @ApiResponse(responseCode = "500", description = "Error interno del servidor")
+    })
+    public ResponseEntity<DepartamentoResponse> actualizarDepartamento(
+            @PathVariable String id,
+            @Valid @RequestBody DepartamentoRequest request) {
+        DepartamentoResponse response = service.actualizar(id, request);
+        return ResponseEntity.ok(response);
+    }
+
+    // ─────────────────────────────────────
+    // Eliminar departamento
+    // ─────────────────────────────────────
+    @DeleteMapping("/departamentos/{id}")
+    @Operation(summary = "Eliminar un departamento", description = "Elimina un departamento del sistema por su ID.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "204", description = "Departamento eliminado exitosamente"),
+            @ApiResponse(responseCode = "404", description = "No existe ningún departamento con el ID proporcionado"),
+            @ApiResponse(responseCode = "500", description = "Error interno del servidor")
+    })
+    public ResponseEntity<Void> eliminarDepartamento(@PathVariable String id) {
+        service.eliminar(id);
+        return ResponseEntity.noContent().build();
     }
 }

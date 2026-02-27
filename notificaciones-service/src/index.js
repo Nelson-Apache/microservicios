@@ -2,6 +2,28 @@ const express = require('express');
 const swaggerJsdoc = require('swagger-jsdoc');
 const swaggerUi = require('swagger-ui-express');
 const { v4: uuidv4 } = require('uuid');
+const winston = require('winston');
+
+// ─────────────────────────────────────────────
+// Configuración de logging estructurado (JSON)
+// ─────────────────────────────────────────────
+const logger = winston.createLogger({
+  level: 'info',
+  format: winston.format.combine(
+    winston.format.timestamp(),
+    winston.format.errors({ stack: true }),
+    winston.format.json()
+  ),
+  defaultMeta: { service: 'notificaciones-service' },
+  transports: [
+    new winston.transports.Console({
+      format: winston.format.combine(
+        winston.format.colorize({ all: false }),
+        winston.format.json()
+      )
+    })
+  ]
+});
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -114,6 +136,69 @@ app.get('/', (req, res) => {
 
 /**
  * @openapi
+ * /health:
+ *   get:
+ *     tags: [Diagnóstico]
+ *     summary: Health check detallado
+ *     description: Verifica el estado del servicio y sus dependencias.
+ *     responses:
+ *       200:
+ *         description: Servicio saludable
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 status:
+ *                   type: string
+ *                   example: healthy
+ *                 service:
+ *                   type: string
+ *                   example: notificaciones-service
+ *                 version:
+ *                   type: string
+ *                   example: 1.0.0
+ *                 checks:
+ *                   type: object
+ *                   properties:
+ *                     memory:
+ *                       type: string
+ *                       example: ok
+ *                     uptime:
+ *                       type: string
+ *                       example: ok
+ */
+app.get('/health', (req, res) => {
+  const memUsage = process.memoryUsage();
+  const memUsedMB = (memUsage.heapUsed / 1024 / 1024).toFixed(2);
+  const memTotalMB = (memUsage.heapTotal / 1024 / 1024).toFixed(2);
+  const memPercent = ((memUsage.heapUsed / memUsage.heapTotal) * 100).toFixed(2);
+
+  const checks = {
+    memory: memPercent < 80 ? 'ok' : 'warning',
+    uptime: process.uptime() > 0 ? 'ok' : 'error',
+    notificaciones_count: notificaciones.length,
+  };
+
+  const health = {
+    status: checks.memory === 'ok' && checks.uptime === 'ok' ? 'healthy' : 'degraded',
+    service: 'notificaciones-service',
+    version: '1.0.0',
+    checks: checks,
+    metrics: {
+      memory_used_mb: memUsedMB,
+      memory_total_mb: memTotalMB,
+      memory_percent: memPercent,
+      uptime_seconds: Math.floor(process.uptime()),
+    },
+  };
+
+  const statusCode = health.status === 'healthy' ? 200 : 503;
+  res.status(statusCode).json(health);
+});
+
+/**
+ * @openapi
  * /notificaciones:
  *   post:
  *     tags: [Notificaciones]
@@ -154,7 +239,17 @@ app.get('/', (req, res) => {
 app.post('/notificaciones', (req, res) => {
   const { tipo, destinatario, mensaje } = req.body;
 
+  logger.info('Solicitud de creación de notificación', {
+    event: 'notificacion_create_request',
+    tipo,
+    destinatario
+  });
+
   if (!tipo || !destinatario || !mensaje) {
+    logger.warn('Campos requeridos faltantes en solicitud', {
+      event: 'validation_error',
+      missing_fields: { tipo: !tipo, destinatario: !destinatario, mensaje: !mensaje }
+    });
     return res.status(400).json({
       error: 'Campos requeridos faltantes',
       detail: 'Los campos tipo, destinatario y mensaje son obligatorios.',
@@ -163,6 +258,10 @@ app.post('/notificaciones', (req, res) => {
 
   const tiposValidos = ['BIENVENIDA', 'ACTUALIZACION', 'ALERTA'];
   if (!tiposValidos.includes(tipo.toUpperCase())) {
+    logger.warn('Tipo de notificación inválido', {
+      event: 'invalid_notification_type',
+      tipo_recibido: tipo
+    });
     return res.status(400).json({
       error: 'Tipo de notificación inválido',
       detail: `El tipo debe ser uno de: ${tiposValidos.join(', ')}`,
@@ -179,6 +278,13 @@ app.post('/notificaciones', (req, res) => {
   };
 
   notificaciones.push(nuevaNotificacion);
+  
+  logger.info('Notificación creada exitosamente', {
+    event: 'notificacion_created',
+    notificacion_id: nuevaNotificacion.id,
+    tipo: nuevaNotificacion.tipo
+  });
+  
   return res.status(201).json(nuevaNotificacion);
 });
 
@@ -315,6 +421,12 @@ app.get('/notificaciones/:id', (req, res) => {
 // Iniciar servidor
 // ─────────────────────────────────────────────
 app.listen(PORT, () => {
-  console.log(`✅ notificaciones-service corriendo en http://localhost:${PORT}`);
-  console.log(`📄 Swagger UI disponible en http://localhost:${PORT}/api-docs`);
+  logger.info(`notificaciones-service corriendo en http://localhost:${PORT}`, {
+    event: 'server_started',
+    port: PORT
+  });
+  logger.info(`Swagger UI disponible en http://localhost:${PORT}/api-docs`, {
+    event: 'swagger_ready',
+    swagger_url: `http://localhost:${PORT}/api-docs`
+  });
 });

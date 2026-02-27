@@ -14,15 +14,18 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"os"
 	"time"
 
 	httpSwagger "github.com/swaggo/http-swagger"
+	"go.uber.org/zap"
 
 	_ "reportes-service/docs"
 )
+
+// Logger global estructurado en JSON
+var logger *zap.Logger
 
 // ─────────────────────────────────────────────
 // Estructuras de datos
@@ -34,6 +37,14 @@ type HealthResponse struct {
 	Service string `json:"service" example:"reportes-service"`
 	Version string `json:"version" example:"1.0.0"`
 	Docs    string `json:"docs" example:"/docs/index.html"`
+}
+
+// DetailedHealthResponse representa el health check detallado
+type DetailedHealthResponse struct {
+	Status  string            `json:"status" example:"healthy"`
+	Service string            `json:"service" example:"reportes-service"`
+	Version string            `json:"version" example:"1.0.0"`
+	Checks  map[string]string `json:"checks"`
 }
 
 // ResumenResponse representa el resumen del sistema
@@ -126,6 +137,70 @@ func healthHandler(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// detailedHealthHandler verifica la conectividad con servicios dependientes
+//
+//	@Summary		Health Check detallado
+//	@Description	Verifica el estado del servicio y la conectividad con empleados y departamentos.
+//	@Tags			Diagnóstico
+//	@Produce		json
+//	@Success		200	{object}	DetailedHealthResponse	"Servicio saludable"
+//	@Failure		503	{object}	DetailedHealthResponse	"Servicio degradado"
+//	@Router			/health [get]
+func detailedHealthHandler(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	checks := make(map[string]string)
+	allHealthy := true
+
+	// Verificar conectividad con servicio de empleados
+	empleadosURL := getEmpleadosURL() + "/empleados?pagina=1&por_pagina=1"
+	if err := testConnection(empleadosURL); err != nil {
+		checks["empleados_service"] = fmt.Sprintf("error: %v", err)
+		allHealthy = false
+	} else {
+		checks["empleados_service"] = "ok"
+	}
+
+	// Verificar conectividad con servicio de departamentos
+	departamentosURL := getDepartamentosURL() + "/departamentos"
+	if err := testConnection(departamentosURL); err != nil {
+		checks["departamentos_service"] = fmt.Sprintf("error: %v", err)
+		allHealthy = false
+	} else {
+		checks["departamentos_service"] = "ok"
+	}
+
+	status := "healthy"
+	statusCode := http.StatusOK
+	if !allHealthy {
+		status = "degraded"
+		statusCode = http.StatusServiceUnavailable
+	}
+
+	w.WriteHeader(statusCode)
+	json.NewEncoder(w).Encode(DetailedHealthResponse{
+		Status:  status,
+		Service: "reportes-service",
+		Version: "1.0.0",
+		Checks:  checks,
+	})
+}
+
+// testConnection verifica si un endpoint responde
+func testConnection(url string) error {
+	client := &http.Client{Timeout: 2 * time.Second}
+	resp, err := client.Get(url)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 500 {
+		return fmt.Errorf("service returned %d", resp.StatusCode)
+	}
+	return nil
+}
+
 // resumenHandler genera el resumen estadístico del sistema
 //
 //	@Summary		Obtener resumen del sistema
@@ -138,13 +213,19 @@ func healthHandler(w http.ResponseWriter, r *http.Request) {
 func resumenHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
+	logger.Info("Solicitud de resumen del sistema", zap.String("event", "resumen_request"))
+
 	var empleados []Empleado
 	var departamentos []Departamento
 
 	// Consultar servicio de empleados
 	empleadosURL := getEmpleadosURL() + "/empleados"
 	if err := fetchJSON(empleadosURL, &empleados); err != nil {
-		log.Printf("Error consultando empleados: %v", err)
+		logger.Error("Error consultando empleados",
+			zap.Error(err),
+			zap.String("event", "empleados_fetch_error"),
+			zap.String("url", empleadosURL),
+		)
 		w.WriteHeader(http.StatusInternalServerError)
 		json.NewEncoder(w).Encode(ErrorResponse{
 			Error:  "Error consultando servicio de empleados",
@@ -156,7 +237,11 @@ func resumenHandler(w http.ResponseWriter, r *http.Request) {
 	// Consultar servicio de departamentos
 	departamentosURL := getDepartamentosURL() + "/departamentos"
 	if err := fetchJSON(departamentosURL, &departamentos); err != nil {
-		log.Printf("Error consultando departamentos: %v", err)
+		logger.Error("Error consultando departamentos",
+			zap.Error(err),
+			zap.String("event", "departamentos_fetch_error"),
+			zap.String("url", departamentosURL),
+		)
 		w.WriteHeader(http.StatusInternalServerError)
 		json.NewEncoder(w).Encode(ErrorResponse{
 			Error:  "Error consultando servicio de departamentos",
@@ -164,6 +249,12 @@ func resumenHandler(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
+
+	logger.Info("Resumen generado exitosamente",
+		zap.String("event", "resumen_created"),
+		zap.Int("total_empleados", len(empleados)),
+		zap.Int("total_departamentos", len(departamentos)),
+	)
 
 	resumen := ResumenResponse{
 		TotalEmpleados:      len(empleados),
@@ -180,6 +271,16 @@ func resumenHandler(w http.ResponseWriter, r *http.Request) {
 // Main
 // ─────────────────────────────────────────────
 func main() {
+	// Inicializar logger estructurado en JSON
+	var err error
+	logger, err = zap.NewProduction()
+	if err != nil {
+		panic(fmt.Sprintf("No se pudo inicializar el logger: %v", err))
+	}
+	defer logger.Sync()
+
+	logger.Info("Inicializando reportes-service", zap.String("service", "reportes-service"))
+
 	port := os.Getenv("PORT")
 	if port == "" {
 		port = "3000"
@@ -189,6 +290,7 @@ func main() {
 
 	// Endpoints de negocio
 	mux.HandleFunc("/", healthHandler)
+	mux.HandleFunc("/health", detailedHealthHandler)
 	mux.HandleFunc("/reportes/resumen", resumenHandler)
 
 	// Swagger UI
@@ -196,10 +298,20 @@ func main() {
 		httpSwagger.URL("/docs/doc.json"),
 	))
 
-	log.Printf("✅ reportes-service corriendo en http://localhost:%s", port)
-	log.Printf("📄 Swagger UI disponible en http://localhost:%s/docs/index.html", port)
+	logger.Info("reportes-service corriendo",
+		zap.String("url", fmt.Sprintf("http://localhost:%s", port)),
+		zap.String("event", "server_started"),
+		zap.String("port", port),
+	)
+	logger.Info("Swagger UI disponible",
+		zap.String("url", fmt.Sprintf("http://localhost:%s/docs/index.html", port)),
+		zap.String("event", "swagger_ready"),
+	)
 
 	if err := http.ListenAndServe(":"+port, mux); err != nil {
-		log.Fatalf("Error al iniciar servidor: %v", err)
+		logger.Fatal("Error al iniciar servidor",
+			zap.Error(err),
+			zap.String("event", "server_start_error"),
+		)
 	}
 }
