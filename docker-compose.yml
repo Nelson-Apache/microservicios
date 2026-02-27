@@ -1,0 +1,210 @@
+services:
+
+  # ─────────────────────────────────────
+  # Servicio de Empleados (Python/FastAPI)
+  # ─────────────────────────────────────
+  empleados-service:
+    build: ./empleados-service
+    ports:
+      - "8080:${EMPLEADOS_SERVICE_PORT:-8000}"
+    environment:
+      - DATABASE_URL=postgresql://${EMPLEADOS_DB_USER:-postgres}:${EMPLEADOS_DB_PASSWORD:-postgres}@${EMPLEADOS_DB_HOST:-database-empleados}:${EMPLEADOS_DB_PORT:-5432}/${EMPLEADOS_DB_NAME:-empleadosdb}
+      - DEPARTAMENTOS_SERVICE_URL=${DEPARTAMENTOS_SERVICE_URL:-http://departamentos-service:8080}
+    depends_on:
+      database-empleados:
+        condition: service_healthy
+      departamentos-service:
+        condition: service_healthy
+    networks:
+      - microservices-net
+    restart: on-failure:5
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 128M
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 40s
+
+  # ─────────────────────────────────────
+  # Servicio de Departamentos (Java/Spring Boot) — multi-stage Dockerfile
+  # ─────────────────────────────────────
+  departamentos-service:
+    build:
+      context: ./departamentos-service
+      target: runtime
+    ports:
+      - "8081:${DEPARTAMENTOS_SERVICE_PORT:-8080}"
+    environment:
+      - DATABASE_URL=jdbc:postgresql://${DEPARTAMENTOS_DB_HOST:-database-departamentos}:${DEPARTAMENTOS_DB_PORT:-5432}/${DEPARTAMENTOS_DB_NAME:-departamentosdb}
+      - DB_USER=${DEPARTAMENTOS_DB_USER:-postgres}
+      - DB_PASSWORD=${DEPARTAMENTOS_DB_PASSWORD:-postgres}
+      - PORT=${DEPARTAMENTOS_SERVICE_PORT:-8080}
+    depends_on:
+      database-departamentos:
+        condition: service_healthy
+    networks:
+      - microservices-net
+    restart: on-failure:5
+    deploy:
+      resources:
+        limits:
+          cpus: '1.5'
+          memory: 768M
+        reservations:
+          cpus: '0.5'
+          memory: 256M
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/actuator/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
+
+  # ─────────────────────────────────────
+  # Servicio de Notificaciones (Node.js/Express)
+  # ─────────────────────────────────────
+  notificaciones-service:
+    build:
+      context: ./notificaciones-service
+      target: runtime
+    ports:
+      - "8082:${NOTIFICACIONES_SERVICE_PORT:-3000}"
+    environment:
+      - PORT=${NOTIFICACIONES_SERVICE_PORT:-3000}
+      - NODE_ENV=${NODE_ENV:-production}
+    networks:
+      - microservices-net
+    restart: on-failure:5
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+        reservations:
+          cpus: '0.1'
+          memory: 64M
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+  # ─────────────────────────────────────
+  # Servicio de Reportes (Go)
+  # ─────────────────────────────────────
+  reportes-service:
+    build:
+      context: ./reportes-service
+      target: runtime
+    ports:
+      - "8083:${REPORTES_SERVICE_PORT:-3000}"
+    environment:
+      - PORT=${REPORTES_SERVICE_PORT:-3000}
+      - EMPLEADOS_SERVICE_URL=${EMPLEADOS_SERVICE_URL:-http://empleados-service:8000}
+      - DEPARTAMENTOS_SERVICE_URL=${DEPARTAMENTOS_SERVICE_URL:-http://departamentos-service:8080}
+    depends_on:
+      empleados-service:
+        condition: service_healthy
+      departamentos-service:
+        condition: service_healthy
+    networks:
+      - microservices-net
+    restart: on-failure:5
+    deploy:
+      resources:
+        limits:
+          cpus: '0.75'
+          memory: 384M
+        reservations:
+          cpus: '0.25'
+          memory: 128M
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+  # ─────────────────────────────────────
+  # Base de Datos — Departamentos (PostgreSQL)
+  # ─────────────────────────────────────
+  database-departamentos:
+    image: postgres:15-alpine
+    environment:
+      - POSTGRES_USER=${DEPARTAMENTOS_DB_USER:-postgres}
+      - POSTGRES_PASSWORD=${DEPARTAMENTOS_DB_PASSWORD:-postgres}
+      - POSTGRES_DB=${DEPARTAMENTOS_DB_NAME:-departamentosdb}
+    volumes:
+      - departamentos-data:/var/lib/postgresql/data
+    networks:
+      - microservices-net
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 512M
+        reservations:
+          cpus: '0.5'
+          memory: 256M
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U ${DEPARTAMENTOS_DB_USER:-postgres} -d ${DEPARTAMENTOS_DB_NAME:-departamentosdb}" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  # ─────────────────────────────────────
+  # Base de Datos — Empleados (PostgreSQL)
+  # ─────────────────────────────────────
+  database-empleados:
+    image: postgres:15-alpine
+    environment:
+      - POSTGRES_USER=${EMPLEADOS_DB_USER:-postgres}
+      - POSTGRES_PASSWORD=${EMPLEADOS_DB_PASSWORD:-postgres}
+      - POSTGRES_DB=${EMPLEADOS_DB_NAME:-empleadosdb}
+    volumes:
+      - empleados-data:/var/lib/postgresql/data
+    networks:
+      - microservices-net
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 512M
+        reservations:
+          cpus: '0.5'
+          memory: 256M
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U ${EMPLEADOS_DB_USER:-postgres} -d ${EMPLEADOS_DB_NAME:-empleadosdb}" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+# ─────────────────────────────────────
+# Volúmenes persistentes
+# ─────────────────────────────────────
+volumes:
+  empleados-data:
+    name: vol-empleados
+  departamentos-data:
+    name: vol-departamentos
+
+# ─────────────────────────────────────
+# Red interna de microservicios
+# ─────────────────────────────────────
+networks:
+  microservices-net:
+    driver: bridge
+    name: microservices-network
