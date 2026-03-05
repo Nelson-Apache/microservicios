@@ -52,7 +52,7 @@ class DepartamentosClient:
         # Circuit Breaker: se abre tras 5 fallos, se cierra tras 60s
         self._circuit_breaker = CircuitBreaker(
             fail_max=5,           # Máximo de fallos antes de abrir
-            timeout_duration=60,  # Tiempo en estado abierto (segundos)
+            reset_timeout=60,  # Tiempo en estado abierto (segundos)
             name="departamentos-service"
         )
         
@@ -269,7 +269,7 @@ class DepartamentosClient:
             "state": self._circuit_breaker.current_state,
             "fail_counter": self._circuit_breaker.fail_counter,
             "fail_max": self._circuit_breaker.fail_max,
-            "timeout_duration": self._circuit_breaker.timeout_duration,
+            "reset_timeout": self._circuit_breaker.reset_timeout,
             "cache_size": len(self._cache),
             "cache_maxsize": self._cache.maxsize
         }

@@ -31,6 +31,9 @@ Sistema de microservicios para la gestión de empleados y departamentos, impleme
               (PostgreSQL :5432)     (PostgreSQL :5433)
                          │                    │
                💾 vol-empleados        💾 vol-departamentos
+               
+            🐰 RabbitMQ Broker (Message Bus :5672)
+            (Eventos: rrhh_events)
 ```
 
 ## 📦 Microservicios
@@ -41,6 +44,16 @@ Sistema de microservicios para la gestión de empleados y departamentos, impleme
 | `departamentos-service` | Java 17 / Spring Boot 3 | :8080 | PostgreSQL (departamentosdb) | http://localhost:8080/swagger-ui.html |
 | `notificaciones-service` | Node.js 18 / Express | :3000 | In-memory | http://localhost:3000/api-docs |
 | `reportes-service` | Go 1.21 / net/http | :3000 (Go) | - | http://localhost:3000/docs/index.html |
+| `rabbitmq-broker` | Erlang / RabbitMQ | :5672 (AMQP) :15672 (Admin UI) | - | http://localhost:15672/ |
+
+### Decisión de Arquitectura: Message Broker (Reto 3)
+
+Se ha seleccionado **RabbitMQ** como el Message Broker central de la arquitectura para transicionar procesos HTTP síncronos a una **Arquitectura Orientada a Eventos (EDA)**. 
+
+**¿Por qué RabbitMQ sobre alternativas como Kafka o Redis Streams?**
+- **Ecosistema Políglota Ideal:** RabbitMQ implementa nativamente AMQP 0-9-1, el cual posee librerías robustas y maduras para exactamente los 4 lenguajes del proyecto (`aio-pika` en Python, `spring-amqp` en Java, `amqplib` en Node y `amqp091-go` en Go), reduciendo el overhead de integración.
+- **Enrutamiento Flexible (Topic Exchanges):** Permite usar *Exchanges* de tipo `topic` o `fanout`. Un solo servicio origen (ej. `empleados-service`) puede publicar el evento `EmpleadoCreadoEvent`, y múltiples consumidores (`notificaciones-service` y `reportes-service`) pueden reaccionar independientemente a través de colas disjuntas y balanceadas sin competir por los mensajes, algo muy natural y explícito comparado con Consumer Groups de Kafka o Redis.
+- **Observabilidad Intuitiva:** La interfaz de administración nativa en el puerto `15672` cumple con el requerimiento de monitoreo y facilita enormemente la tarea de depuración y trazabilidad en entornos de desarrollo al inspeccionar visualmente colas, conexiones y mensajes al vuelo.
 
 ### Funcionalidades por Servicio
 

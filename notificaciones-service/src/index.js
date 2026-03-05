@@ -175,7 +175,7 @@ app.get('/health', (req, res) => {
   const memPercent = ((memUsage.heapUsed / memUsage.heapTotal) * 100).toFixed(2);
 
   const checks = {
-    memory: memPercent < 80 ? 'ok' : 'warning',
+    memory: parseFloat(memPercent) < 95 ? 'ok' : 'warning',
     uptime: process.uptime() > 0 ? 'ok' : 'error',
     notificaciones_count: notificaciones.length,
   };

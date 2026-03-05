@@ -1,7 +1,7 @@
 from fastapi import FastAPI, Request, status
 from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError
-from pydantic import ValidationError
+
 from app.routes import empleados
 from app.database import init_db, engine, EmpleadoModel
 from sqlalchemy import text
@@ -59,6 +59,7 @@ app = FastAPI(
 # ─────────────────────────────────────────────────────────────────────────────
 # Eventos de ciclo de vida
 # ─────────────────────────────────────────────────────────────────────────────
+from app.broker import rabbitmq_client
 
 @app.on_event("startup")
 async def startup_event():
@@ -69,9 +70,15 @@ async def startup_event():
         logger.info("Conectando a la base de datos", extra={"event": "db_connection_start"})
         init_db()
         logger.info("Base de datos inicializada correctamente", extra={"event": "db_initialized"})
+        await rabbitmq_client.connect()
     except Exception as e:
-        logger.error("Error al inicializar la base de datos", extra={"event": "db_init_error", "error": str(e)})
+        logger.error("Error al inicializar la base de datos o RabbitMQ", extra={"event": "db_init_error", "error": str(e)})
         sys.exit(1)
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    logger.info("Cerrando conexiones...")
+    await rabbitmq_client.close()
 
 
 # Incluir routers
