@@ -1,0 +1,10 @@
+.git
+.gitignore
+*.md
+Dockerfile
+.dockerignore
+app/
+__pycache__/
+*.pyc
+requirements.txt
+target/
