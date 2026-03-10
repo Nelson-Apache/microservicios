@@ -16,17 +16,29 @@ class RabbitMQClient:
         self.exchange_name = "rrhh_events" # Nombre del exchange
 
     async def connect(self):
+        import asyncio
         logger.info(f"Conectando a RabbitMQ en {RABBITMQ_URL}")
-        self.connection = await connect_robust(RABBITMQ_URL)
-        self.channel = await self.connection.channel()
-        
-        # Declarar un exchange de tipo topic para que múltiples consumidores escuchen
-        self.exchange = await self.channel.declare_exchange(
-            self.exchange_name, 
-            type="topic", 
-            durable=True
-        )
-        logger.info("Conexión a RabbitMQ establecida exitosamente")
+        max_retries = 5
+        for i in range(max_retries):
+            try:
+                self.connection = await connect_robust(RABBITMQ_URL)
+                self.channel = await self.connection.channel()
+                
+                # Declarar un exchange de tipo topic para que múltiples consumidores escuchen
+                self.exchange = await self.channel.declare_exchange(
+                    self.exchange_name, 
+                    type="topic", 
+                    durable=True
+                )
+                logger.info("Conexión a RabbitMQ establecida exitosamente")
+                return
+            except Exception as e:
+                if i < max_retries - 1:
+                    logger.warning(f"Error al conectar a RabbitMQ: {e}. Reintentando en 5 segundos... ({i+1}/{max_retries})")
+                    await asyncio.sleep(5)
+                else:
+                    logger.error("No se pudo conectar a RabbitMQ después de varios reintentos.")
+                    raise
 
     async def close(self):
         if self.connection and not self.connection.is_closed:

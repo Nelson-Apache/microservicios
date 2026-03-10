@@ -138,10 +138,8 @@ class DepartamentosClient:
         """
         try:
             # Intentar obtener del servicio con Circuit Breaker
-            resultado = await self._circuit_breaker.call_async(
-                self._fetch_departamento,
-                departamento_id
-            )
+            wrapped_fetch = self._circuit_breaker(self._fetch_departamento)
+            resultado = await wrapped_fetch(departamento_id)
             
             if resultado is None:
                 raise DepartamentoNoEncontradoError(departamento_id)
@@ -226,10 +224,8 @@ class DepartamentosClient:
         """
         try:
             # Intentar obtener del servicio con Circuit Breaker
-            resultado = await self._circuit_breaker.call_async(
-                self._fetch_departamento,
-                departamento_id
-            )
+            wrapped_fetch = self._circuit_breaker(self._fetch_departamento)
+            resultado = await wrapped_fetch(departamento_id)
             
             return resultado
             

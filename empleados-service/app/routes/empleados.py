@@ -9,6 +9,8 @@ from app.clients.departamentos_client import (
     DepartamentosServiceError
 )
 import logging
+import asyncio
+from app.broker import rabbitmq_client
 
 logger = logging.getLogger(__name__)
 
@@ -94,6 +96,26 @@ async def registrar_empleado(empleado: EmpleadoCreate):
             "Empleado creado exitosamente",
             extra={"event": "empleado_created", "empleado_id": empleado.id}
         )
+        
+        # [NUEVO] Publicar evento empleado.creado
+        try:
+            evento_creado = {
+                "id": empleado.id,
+                "nombre": empleado.nombre,
+                "email": empleado.email,
+                "departamentoId": empleado.departamento_id,
+                "fechaIngreso": empleado.fecha_ingreso.isoformat() if empleado.fecha_ingreso else None
+            }
+            await rabbitmq_client.publish_event(
+                routing_key="empleado.creado",
+                event_data=evento_creado
+            )
+        except Exception as e:
+            logger.error(
+                "Error al publicar evento empleado.creado al broker",
+                extra={"event": "broker_publish_error", "error": str(e), "empleado_id": empleado.id}
+            )
+            
         return Empleado(**empleado_dict)
     except EmpleadoYaExisteError as e:
         logger.warning(
@@ -290,12 +312,31 @@ async def eliminar_empleado(id: int):
             detail="El ID debe ser un número entero mayor que 0.",
         )
 
-    eliminado = db.eliminar_empleado(id)
-
-    if not eliminado:
+    # [NUEVO] Obtener datos antes de eliminar
+    empleado_existente = db.obtener_empleado(id)
+    if empleado_existente is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"No se encontró ningún empleado con el id {id}.",
+        )
+
+    eliminado = db.eliminar_empleado(id)
+        
+    # [NUEVO] Publicar evento empleado.eliminado
+    try:
+        evento_eliminado = {
+            "id": id,
+            "nombre": empleado_existente["nombre"],
+            "email": empleado_existente["email"]
+        }
+        await rabbitmq_client.publish_event(
+            routing_key="empleado.eliminado",
+            event_data=evento_eliminado
+        )
+    except Exception as e:
+        logger.error(
+            "Error al publicar evento empleado.eliminado al broker",
+            extra={"event": "broker_publish_error", "error": str(e), "empleado_id": id}
         )
 
 

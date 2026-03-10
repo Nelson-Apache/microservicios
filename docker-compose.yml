@@ -72,24 +72,32 @@ services:
       start_period: 60s
 
   # ─────────────────────────────────────
-  # Servicio de Notificaciones (Node.js/Express)
+  # Servicio de Notificaciones (Consumidor)
   # ─────────────────────────────────────
   notificaciones-service:
     build:
       context: ./notificaciones-service
-      target: runtime
+      dockerfile: Dockerfile
+    container_name: notificaciones-service
     ports:
-      - "8082:${NOTIFICACIONES_SERVICE_PORT:-3000}"
+      - "8082:3000"
     environment:
-      - PORT=${NOTIFICACIONES_SERVICE_PORT:-3000}
-      - NODE_ENV=${NODE_ENV:-production}
+      - NODE_ENV=production
+      - PORT=3000
+      - DATABASE_URL=postgresql://postgres:postgres@database-notificaciones:5432/notificacionesdb
+      - RABBITMQ_URL=amqp://${RABBITMQ_USER:-guest}:${RABBITMQ_PASSWORD:-guest}@rabbitmq:5672/
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      database-notificaciones:
+        condition: service_healthy
     networks:
       - microservices-net
-    restart: on-failure:5
+    restart: unless-stopped
     deploy:
       resources:
         limits:
-          cpus: '0.5'
+          cpus: '0.4'
           memory: 256M
         reservations:
           cpus: '0.1'
@@ -214,13 +222,94 @@ services:
       resources:
         limits:
           cpus: '0.5'
-          memory: 512M
+          memory: 1G
     healthcheck:
       test: [ "CMD", "rabbitmq-diagnostics", "-q", "ping" ]
+      interval: 15s
+      timeout: 30s
+      retries: 5
+      start_period: 120s
+      start_interval: 10s
+
+  # ─────────────────────────────────────
+  # Base de Datos Notificaciones (PostgreSQL)
+  # ─────────────────────────────────────
+  database-notificaciones:
+    image: postgres:15-alpine
+    container_name: db-notificaciones
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=notificacionesdb
+    volumes:
+      - notificaciones-data:/var/lib/postgresql/data
+    networks:
+      - microservices-net
+    restart: unless-stopped
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U postgres -d notificacionesdb" ]
       interval: 10s
       timeout: 5s
       retries: 5
+
+  # ─────────────────────────────────────
+  # Servicio de Gestión de Perfiles (Node.js)
+  # ─────────────────────────────────────
+  perfiles-service:
+    build:
+      context: ./perfiles-service
+      dockerfile: Dockerfile
+    container_name: perfiles-service
+    ports:
+      - "${PERFILES_SERVICE_PORT:-8084}:3000"
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      - DATABASE_URL=postgresql://postgres:postgres@database-perfiles:5432/perfilesdb
+      - RABBITMQ_URL=amqp://${RABBITMQ_USER:-guest}:${RABBITMQ_PASSWORD:-guest}@rabbitmq:5672/
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      database-perfiles:
+        condition: service_healthy
+    networks:
+      - microservices-net
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '0.4'
+          memory: 256M
+        reservations:
+          cpus: '0.1'
+          memory: 64M
+    healthcheck:
+      test: [ "CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000/health" ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
       start_period: 20s
+
+  # ─────────────────────────────────────
+  # Base de Datos Perfiles (PostgreSQL)
+  # ─────────────────────────────────────
+  database-perfiles:
+    image: postgres:15-alpine
+    container_name: db-perfiles
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=perfilesdb
+    volumes:
+      - perfiles-data:/var/lib/postgresql/data
+    networks:
+      - microservices-net
+    restart: unless-stopped
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U postgres -d perfilesdb" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
 # ─────────────────────────────────────
 # Volúmenes persistentes
@@ -230,6 +319,10 @@ volumes:
     name: vol-empleados
   departamentos-data:
     name: vol-departamentos
+  notificaciones-data:
+    name: notificaciones-data
+  perfiles-data:
+    name: perfiles-data
 
 # ─────────────────────────────────────
 # Red interna de microservicios

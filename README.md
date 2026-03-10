@@ -41,9 +41,10 @@ Sistema de microservicios para la gestión de empleados y departamentos, impleme
 | Servicio | Lenguaje | Puerto | Base de Datos | Swagger UI |
 |----------|----------|--------|---------------|------------|
 | `empleados-service` | Python 3.11 / FastAPI | :8000 | PostgreSQL (empleadosdb) | http://localhost:8000/docs |
-| `departamentos-service` | Java 17 / Spring Boot 3 | :8080 | PostgreSQL (departamentosdb) | http://localhost:8080/swagger-ui.html |
-| `notificaciones-service` | Node.js 18 / Express | :3000 | In-memory | http://localhost:3000/api-docs |
-| `reportes-service` | Go 1.21 / net/http | :3000 (Go) | - | http://localhost:3000/docs/index.html |
+| `departamentos-service` | Java 17 / Spring Boot 3 | :8081 | PostgreSQL (departamentosdb) | http://localhost:8081/swagger-ui.html |
+| `notificaciones-service` | Node.js 18 / Express | :8082 | PostgreSQL (notificacionesdb) | No implementado (puramente reactivo/GETs básicos) |
+| `reportes-service` | Go 1.21 / net/http | :8083 | - | http://localhost:8083/docs/index.html |
+| `perfiles-service` | Node.js 18 / Express | :8084 | PostgreSQL (perfilesdb) | No implementado |
 | `rabbitmq-broker` | Erlang / RabbitMQ | :5672 (AMQP) :15672 (Admin UI) | - | http://localhost:15672/ |
 
 ### Decisión de Arquitectura: Message Broker (Reto 3)

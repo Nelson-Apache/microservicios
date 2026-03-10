@@ -1,8 +1,8 @@
 const express = require('express');
-const swaggerJsdoc = require('swagger-jsdoc');
-const swaggerUi = require('swagger-ui-express');
 const { v4: uuidv4 } = require('uuid');
 const winston = require('winston');
+const amqp = require('amqplib');
+const { Pool } = require('pg');
 
 // ─────────────────────────────────────────────
 // Configuración de logging estructurado (JSON)
@@ -19,7 +19,12 @@ const logger = winston.createLogger({
     new winston.transports.Console({
       format: winston.format.combine(
         winston.format.colorize({ all: false }),
-        winston.format.json()
+        winston.format.printf(({ timestamp, level, message, ...meta }) => {
+          if (message && message.startsWith("[NOTIFICACIÓN]")) {
+            return `${message}`;
+          }
+          return `${timestamp} [${level}]: ${message} ${Object.keys(meta).length && meta.service !== 'notificaciones-service' ? JSON.stringify(meta) : ''}`;
+        })
       )
     })
   ]
@@ -31,402 +36,203 @@ const PORT = process.env.PORT || 3000;
 app.use(express.json());
 
 // ─────────────────────────────────────────────
-// Base de datos en memoria para notificaciones
+// Conexión a Base de Datos PostgreSQL
 // ─────────────────────────────────────────────
-let notificaciones = [];
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL || 'postgresql://postgres:postgres@localhost:5432/notificacionesdb'
+});
+
+async function initDB() {
+  try {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS notificaciones (
+        id UUID PRIMARY KEY,
+        tipo VARCHAR(50) NOT NULL,
+        destinatario VARCHAR(100) NOT NULL,
+        mensaje TEXT NOT NULL,
+        fecha_envio TIMESTAMP NOT NULL,
+        empleado_id VARCHAR(50)
+      );
+    `);
+    logger.info('Base de datos inicializada correctamente');
+  } catch (error) {
+    logger.error('Error inicializando base de datos', { error: error.message });
+    process.exit(1);
+  }
+}
 
 // ─────────────────────────────────────────────
-// Configuración OpenAPI / Swagger
+// Conexión a RabbitMQ y Consumo de Eventos
 // ─────────────────────────────────────────────
-const swaggerOptions = {
+async function initRabbitMQ() {
+  try {
+    const rabbitUrl = process.env.RABBITMQ_URL || 'amqp://guest:guest@localhost:5672/';
+    const connection = await amqp.connect(rabbitUrl);
+    const channel = await connection.createChannel();
+    const exchange = 'rrhh_events';
+
+    await channel.assertExchange(exchange, 'topic', { durable: true });
+
+    // Cola dedicada exlusivamente a este servicio
+    const q = await channel.assertQueue('notificaciones_queue', { durable: true });
+
+    // "Bindear" las dos llaves de ruteo
+    await channel.bindQueue(q.queue, exchange, 'empleado.creado');
+    await channel.bindQueue(q.queue, exchange, 'empleado.eliminado');
+
+    logger.info('Conectado a RabbitMQ, esperando mensajes...');
+
+    channel.consume(q.queue, async (msg) => {
+      if (!msg) return;
+
+      const routingKey = msg.fields.routingKey;
+      const eventData = JSON.parse(msg.content.toString());
+
+      let tipo = "";
+      let destinatario = eventData.email || 'soporte@empresa.com';
+      let mensajeStr = "";
+      let empleadoId = eventData.id ? String(eventData.id) : null;
+
+      if (routingKey === 'empleado.creado') {
+        tipo = "BIENVENIDA";
+        mensajeStr = `Bienvenido ${eventData.nombre} al equipo.`;
+      } else if (routingKey === 'empleado.eliminado') {
+        tipo = "DESVINCULACION";
+        mensajeStr = `Su cuenta ha sido desvinculada, ${eventData.nombre}.`;
+      }
+
+      // Simulación de envío por Log (Requerimiento)
+      logger.info(`[NOTIFICACIÓN] Tipo: ${tipo} | Para: ${destinatario} | Mensaje: "${mensajeStr}"`);
+
+      // Guardado en Base de Datos PostgreSQL (requerimiento)
+      try {
+        await pool.query(`
+                    INSERT INTO notificaciones (id, tipo, destinatario, mensaje, fecha_envio, empleado_id) 
+                    VALUES ($1, $2, $3, $4, $5, $6)
+                `, [uuidv4(), tipo, destinatario, mensajeStr, new Date(), empleadoId]);
+      } catch (error) {
+        logger.error('Error insertando notificacion', { error: error.message });
+      }
+
+      channel.ack(msg); // Marcamos el mensaje como procesado exitosamente
+    });
+  } catch (error) {
+    logger.error('Error conectando a RabbitMQ, reintentando...', { error: error.message });
+    setTimeout(initRabbitMQ, 5000);
+  }
+}
+
+// ─────────────────────────────────────────────
+// Swagger Docs
+// ─────────────────────────────────────────────
+const swaggerUi = require('swagger-ui-express');
+const swaggerJsdoc = require('swagger-jsdoc');
+
+const options = {
   definition: {
     openapi: '3.0.0',
     info: {
-      title: 'Servicio de Notificaciones',
+      title: 'Notificaciones Service API',
       version: '1.0.0',
-      description:
-        '## Microservicio de Notificaciones\n\n' +
-        'Gestiona el registro y consulta de notificaciones del sistema.\n\n' +
-        'Este servicio simula el envío de notificaciones cuando ocurren eventos\n' +
-        'importantes, como el registro de un nuevo empleado.\n\n' +
-        '### Tipos de notificación soportados\n' +
-        '- `BIENVENIDA`: Notificación al registrar un nuevo empleado\n' +
-        '- `ACTUALIZACION`: Cambios en datos de empleados\n' +
-        '- `ALERTA`: Eventos críticos del sistema',
-      contact: {
-        name: 'Equipo de Microservicios',
-        email: 'soporte@empresa.com',
-      },
-      license: { name: 'MIT' },
+      description: 'API para la gestión del Historial de Notificaciones',
     },
-    servers: [
-      {
-        url: 'http://localhost:8082',
-        description: 'Servidor local de desarrollo',
-      },
-    ],
-    tags: [
-      {
-        name: 'Diagnóstico',
-        description: 'Endpoints de salud y estado del servicio',
-      },
-      {
-        name: 'Notificaciones',
-        description: 'Operaciones CRUD sobre notificaciones',
-      },
-    ],
   },
-  apis: ['./src/index.js'],
+  apis: ['./src/index.js'], // buscar en este archivo
 };
-
-const swaggerSpec = swaggerJsdoc(swaggerOptions);
-
-// Exponer Swagger UI
-app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec, {
-  customCss: '.swagger-ui .topbar { display: none }',
-  customSiteTitle: 'Notificaciones API - Swagger UI',
-}));
-
-// Exponer spec JSON para integraciones
-app.get('/api-docs.json', (req, res) => {
-  res.setHeader('Content-Type', 'application/json');
-  res.send(swaggerSpec);
-});
+const specs = swaggerJsdoc(options);
+app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(specs));
 
 // ─────────────────────────────────────────────
-// ENDPOINTS
+// ENDPOINTS REST
 // ─────────────────────────────────────────────
 
 /**
- * @openapi
- * /:
- *   get:
- *     tags: [Diagnóstico]
- *     summary: Health Check
- *     description: Verifica que el servicio de notificaciones está activo y operativo.
- *     responses:
- *       200:
- *         description: Servicio operativo
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 status:
- *                   type: string
- *                   example: ok
- *                 service:
- *                   type: string
- *                   example: notificaciones-service
- *                 version:
- *                   type: string
- *                   example: 1.0.0
- *                 docs:
- *                   type: string
- *                   example: /api-docs
- */
-app.get('/', (req, res) => {
-  res.json({
-    status: 'ok',
-    service: 'notificaciones-service',
-    version: '1.0.0',
-    docs: '/api-docs',
-  });
-});
-
-/**
- * @openapi
+ * @swagger
  * /health:
  *   get:
- *     tags: [Diagnóstico]
- *     summary: Health check detallado
- *     description: Verifica el estado del servicio y sus dependencias.
+ *     summary: Healthcheck del servicio
  *     responses:
  *       200:
- *         description: Servicio saludable
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 status:
- *                   type: string
- *                   example: healthy
- *                 service:
- *                   type: string
- *                   example: notificaciones-service
- *                 version:
- *                   type: string
- *                   example: 1.0.0
- *                 checks:
- *                   type: object
- *                   properties:
- *                     memory:
- *                       type: string
- *                       example: ok
- *                     uptime:
- *                       type: string
- *                       example: ok
+ *         description: Servicio funcionando
  */
 app.get('/health', (req, res) => {
-  const memUsage = process.memoryUsage();
-  const memUsedMB = (memUsage.heapUsed / 1024 / 1024).toFixed(2);
-  const memTotalMB = (memUsage.heapTotal / 1024 / 1024).toFixed(2);
-  const memPercent = ((memUsage.heapUsed / memUsage.heapTotal) * 100).toFixed(2);
-
-  const checks = {
-    memory: parseFloat(memPercent) < 95 ? 'ok' : 'warning',
-    uptime: process.uptime() > 0 ? 'ok' : 'error',
-    notificaciones_count: notificaciones.length,
-  };
-
-  const health = {
-    status: checks.memory === 'ok' && checks.uptime === 'ok' ? 'healthy' : 'degraded',
+  res.json({
+    status: 'healthy',
     service: 'notificaciones-service',
-    version: '1.0.0',
-    checks: checks,
-    metrics: {
-      memory_used_mb: memUsedMB,
-      memory_total_mb: memTotalMB,
-      memory_percent: memPercent,
-      uptime_seconds: Math.floor(process.uptime()),
-    },
-  };
-
-  const statusCode = health.status === 'healthy' ? 200 : 503;
-  res.status(statusCode).json(health);
+    version: '1.0.0'
+  });
 });
 
 /**
- * @openapi
- * /notificaciones:
- *   post:
- *     tags: [Notificaciones]
- *     summary: Registrar una notificación
- *     description: >
- *       Registra una nueva notificación en el sistema.
- *       El campo `id` y `fechaCreacion` son generados automáticamente.
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             $ref: '#/components/schemas/NotificacionInput'
- *           example:
- *             tipo: BIENVENIDA
- *             destinatario: juan@empresa.com
- *             mensaje: Bienvenido al equipo, Juan Pérez
- *     responses:
- *       201:
- *         description: Notificación registrada exitosamente
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/Notificacion'
- *       400:
- *         description: Datos inválidos o campos requeridos faltantes
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/Error'
- *       500:
- *         description: Error interno del servidor
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/Error'
- */
-app.post('/notificaciones', (req, res) => {
-  const { tipo, destinatario, mensaje } = req.body;
-
-  logger.info('Solicitud de creación de notificación', {
-    event: 'notificacion_create_request',
-    tipo,
-    destinatario
-  });
-
-  if (!tipo || !destinatario || !mensaje) {
-    logger.warn('Campos requeridos faltantes en solicitud', {
-      event: 'validation_error',
-      missing_fields: { tipo: !tipo, destinatario: !destinatario, mensaje: !mensaje }
-    });
-    return res.status(400).json({
-      error: 'Campos requeridos faltantes',
-      detail: 'Los campos tipo, destinatario y mensaje son obligatorios.',
-    });
-  }
-
-  const tiposValidos = ['BIENVENIDA', 'ACTUALIZACION', 'ALERTA'];
-  if (!tiposValidos.includes(tipo.toUpperCase())) {
-    logger.warn('Tipo de notificación inválido', {
-      event: 'invalid_notification_type',
-      tipo_recibido: tipo
-    });
-    return res.status(400).json({
-      error: 'Tipo de notificación inválido',
-      detail: `El tipo debe ser uno de: ${tiposValidos.join(', ')}`,
-    });
-  }
-
-  const nuevaNotificacion = {
-    id: uuidv4(),
-    tipo: tipo.toUpperCase(),
-    destinatario,
-    mensaje,
-    fechaCreacion: new Date().toISOString(),
-    estado: 'ENVIADO',
-  };
-
-  notificaciones.push(nuevaNotificacion);
-  
-  logger.info('Notificación creada exitosamente', {
-    event: 'notificacion_created',
-    notificacion_id: nuevaNotificacion.id,
-    tipo: nuevaNotificacion.tipo
-  });
-  
-  return res.status(201).json(nuevaNotificacion);
-});
-
-/**
- * @openapi
+ * @swagger
  * /notificaciones:
  *   get:
- *     tags: [Notificaciones]
- *     summary: Listar todas las notificaciones
- *     description: Retorna la lista completa de todas las notificaciones registradas en el sistema.
+ *     summary: Lista todas las notificaciones registradas (Historial global)
  *     responses:
  *       200:
- *         description: Lista de notificaciones obtenida exitosamente
- *         content:
- *           application/json:
- *             schema:
- *               type: array
- *               items:
- *                 $ref: '#/components/schemas/Notificacion'
- *       500:
- *         description: Error interno del servidor
+ *         description: Lista de notificaciones
  */
-app.get('/notificaciones', (req, res) => {
-  res.json(notificaciones);
+app.get('/notificaciones', async (req, res) => {
+  try {
+    const result = await pool.query('SELECT * FROM notificaciones ORDER BY fecha_envio DESC LIMIT 100');
+    const notificacionesList = result.rows.map(row => ({
+      id: row.id,
+      tipo: row.tipo,
+      destinatario: row.destinatario,
+      mensaje: row.mensaje,
+      fechaEnvio: row.fecha_envio,
+      empleadoId: row.empleado_id
+    }));
+    res.json(notificacionesList);
+  } catch (error) {
+    logger.error('Error obteniendo notificaciones', { error: error.message });
+    res.status(500).json({ error: 'Error interno del servidor' });
+  }
 });
 
 /**
- * @openapi
- * /notificaciones/{id}:
+ * @swagger
+ * /notificaciones/{empleadoId}:
  *   get:
- *     tags: [Notificaciones]
- *     summary: Obtener una notificación por ID
- *     description: Busca y retorna una notificación específica mediante su identificador UUID.
+ *     summary: Lista notificaciones de un empleado específico
  *     parameters:
  *       - in: path
- *         name: id
+ *         name: empleadoId
  *         required: true
  *         schema:
  *           type: string
- *           format: uuid
- *         description: UUID de la notificación a buscar
- *         example: "550e8400-e29b-41d4-a716-446655440000"
  *     responses:
  *       200:
- *         description: Notificación encontrada y retornada exitosamente
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/Notificacion'
- *       404:
- *         description: No existe ninguna notificación con el ID proporcionado
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/Error'
- *       500:
- *         description: Error interno del servidor
+ *         description: Lista de notificaciones del empleado
  */
-app.get('/notificaciones/:id', (req, res) => {
-  const notificacion = notificaciones.find((n) => n.id === req.params.id);
-  if (!notificacion) {
-    return res.status(404).json({
-      error: 'Notificación no encontrada',
-      detail: `No existe una notificación con ID '${req.params.id}'.`,
-    });
+app.get('/notificaciones/:empleadoId', async (req, res) => {
+  try {
+    const { empleadoId } = req.params;
+    const result = await pool.query('SELECT * FROM notificaciones WHERE empleado_id = $1 ORDER BY fecha_envio DESC', [empleadoId]);
+    const notificacionesList = result.rows.map(row => ({
+      id: row.id,
+      tipo: row.tipo,
+      destinatario: row.destinatario,
+      mensaje: row.mensaje,
+      fechaEnvio: row.fecha_envio,
+      empleadoId: row.empleado_id
+    }));
+    res.json(notificacionesList);
+  } catch (error) {
+    logger.error('Error obteniendo notificaciones por empleado', { error: error.message });
+    res.status(500).json({ error: 'Error interno del servidor' });
   }
-  res.json(notificacion);
 });
-
-// ─────────────────────────────────────────────
-// Schemas OpenAPI (componentes reutilizables)
-// ─────────────────────────────────────────────
-/**
- * @openapi
- * components:
- *   schemas:
- *     NotificacionInput:
- *       type: object
- *       required:
- *         - tipo
- *         - destinatario
- *         - mensaje
- *       properties:
- *         tipo:
- *           type: string
- *           enum: [BIENVENIDA, ACTUALIZACION, ALERTA]
- *           description: Tipo de notificación
- *           example: BIENVENIDA
- *         destinatario:
- *           type: string
- *           description: Email o identificador del destinatario
- *           example: juan@empresa.com
- *         mensaje:
- *           type: string
- *           description: Contenido del mensaje de la notificación
- *           example: Bienvenido al equipo, Juan Pérez
- *     Notificacion:
- *       type: object
- *       properties:
- *         id:
- *           type: string
- *           format: uuid
- *           description: Identificador único generado automáticamente
- *           example: "550e8400-e29b-41d4-a716-446655440000"
- *         tipo:
- *           type: string
- *           enum: [BIENVENIDA, ACTUALIZACION, ALERTA]
- *           example: BIENVENIDA
- *         destinatario:
- *           type: string
- *           example: juan@empresa.com
- *         mensaje:
- *           type: string
- *           example: Bienvenido al equipo, Juan Pérez
- *         fechaCreacion:
- *           type: string
- *           format: date-time
- *           example: "2024-01-15T10:30:00.000Z"
- *         estado:
- *           type: string
- *           example: ENVIADO
- *     Error:
- *       type: object
- *       properties:
- *         error:
- *           type: string
- *           description: Descripción corta del error
- *         detail:
- *           type: string
- *           description: Detalle adicional del error
- */
 
 // ─────────────────────────────────────────────
 // Iniciar servidor
 // ─────────────────────────────────────────────
-app.listen(PORT, () => {
-  logger.info(`notificaciones-service corriendo en http://localhost:${PORT}`, {
-    event: 'server_started',
-    port: PORT
+async function startServer() {
+  await initDB();
+  initRabbitMQ();
+  app.listen(PORT, () => {
+    logger.info(`notificaciones-service corriendo en http://localhost:${PORT}`);
   });
-  logger.info(`Swagger UI disponible en http://localhost:${PORT}/api-docs`, {
-    event: 'swagger_ready',
-    swagger_url: `http://localhost:${PORT}/api-docs`
-  });
-});
+}
+
+startServer();

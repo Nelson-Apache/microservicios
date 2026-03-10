@@ -1,7 +1,7 @@
 from fastapi import FastAPI, Request, status
 from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError
-
+from pydantic import ValidationError
 from app.routes import empleados
 from app.database import init_db, engine, EmpleadoModel
 from sqlalchemy import text
