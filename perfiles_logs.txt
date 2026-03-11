@@ -1,0 +1,7 @@
+
+> perfiles-service@1.0.0 start
+> node src/index.js
+
+2026-03-11T02:04:54.345Z [[32minfo[39m]: Base de datos inicializada correctamente 
+2026-03-11T02:04:54.434Z [[32minfo[39m]: perfiles-service corriendo en http://localhost:3000 
+2026-03-11T02:04:54.758Z [[32minfo[39m]: Conectado a RabbitMQ, esperando mensajes de creación de empleados... 

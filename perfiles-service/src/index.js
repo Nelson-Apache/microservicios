@@ -75,10 +75,11 @@ async function initRabbitMQ() {
     // Cola dedicada exclusivamente a crear perfiles
     const q = await channel.assertQueue('perfiles_queue', { durable: true });
 
-    // Solo escuchamos la creación de empleados para generar el perfil
+    // Solo escuchamos la creación y eliminación de empleados para generar/borrar el perfil
     await channel.bindQueue(q.queue, exchange, 'empleado.creado');
+    await channel.bindQueue(q.queue, exchange, 'empleado.eliminado');
 
-    logger.info('Conectado a RabbitMQ, esperando mensajes de creación de empleados...');
+    logger.info('Conectado a RabbitMQ, esperando mensajes de empleados...');
 
     channel.consume(q.queue, async (msg) => {
       if (!msg) return;
@@ -112,6 +113,20 @@ async function initRabbitMQ() {
           }
         } catch (error) {
           logger.error('Error insertando perfil desde evento', { error: error.message, empleadoId });
+        }
+      } else if (routingKey === 'empleado.eliminado') {
+        const eventData = JSON.parse(msg.content.toString());
+        const empleadoId = String(eventData.id);
+
+        try {
+          const result = await pool.query('DELETE FROM perfiles WHERE empleado_id = $1', [empleadoId]);
+          if (result.rowCount > 0) {
+            logger.info(`Perfil eliminado exitosamente para empleado ${empleadoId}`);
+          } else {
+            logger.info(`No se encontró perfil para eliminar del empleado ${empleadoId}`);
+          }
+        } catch (error) {
+          logger.error('Error eliminando perfil desde evento', { error: error.message, empleadoId });
         }
       }
 

@@ -212,18 +212,18 @@ curl http://localhost:8084/notificaciones/E001
 ## Entregables
 Versione adecuadamente su código en repositorios de GitHub
 Cree un README.md actualizado que incluya:
-Justificación de la elección del message broker
-Instrucciones de despliegue del sistema completo
-Documentación de los eventos (nombre, estructura, productores y consumidores)
-Instrucciones de prueba para verificar el flujo asincrónico
+-Justificación de la elección del message broker
+-Instrucciones de despliegue del sistema completo
+-Documentación de los eventos (nombre, estructura, productores y consumidores)
+-Instrucciones de prueba para verificar el flujo asincrónico
 
 ## Consideraciones
 
-Cada servicio debe tener su propio Dockerfile
-Cada servicio debe tener su propia base de datos
-El servicio de Notificaciones debe ser puramente reactivo (no es llamado por otros servicios via
+-Cada servicio debe tener su propio Dockerfile
+-Cada servicio debe tener su propia base de datos
+-El servicio de Notificaciones debe ser puramente reactivo (no es llamado por otros servicios via
 REST)
-El servicio de Perfiles combina ambos estilos: reactivo (consume eventos) + REST (expone
+-El servicio de Perfiles combina ambos estilos: reactivo (consume eventos) + REST (expone
 endpoints)
 
 Nota: La documentación (README.md) y el versionamiento adecuado en GitHub son requisitos
