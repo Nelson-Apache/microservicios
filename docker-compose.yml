@@ -1,6 +1,107 @@
 services:
 
   # ─────────────────────────────────────
+  # API Gateway (Python/FastAPI) — Punto de entrada único
+  # ─────────────────────────────────────
+  api-gateway:
+    build: ./api-gateway
+    ports:
+      - "${GATEWAY_PORT:-8000}:8000"
+    environment:
+      - JWT_SECRET=${JWT_SECRET:-changeme-super-secret-key-for-dev}
+      - AUTH_SERVICE_URL=http://auth-service:8085
+      - EMPLEADOS_SERVICE_URL=http://empleados-service:8080
+      - DEPARTAMENTOS_SERVICE_URL=http://departamentos-service:8080
+      - NOTIFICACIONES_SERVICE_URL=http://notificaciones-service:3000
+      - PERFILES_SERVICE_URL=http://perfiles-service:3000
+      - REPORTES_SERVICE_URL=http://reportes-service:3000
+    depends_on:
+      auth-service:
+        condition: service_healthy
+      empleados-service:
+        condition: service_healthy
+      departamentos-service:
+        condition: service_healthy
+    networks:
+      - microservices-net
+    restart: on-failure:5
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+        reservations:
+          cpus: '0.1'
+          memory: 64M
+    healthcheck:
+      test: [ "CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')" ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+
+  # ─────────────────────────────────────
+  # Servicio de Autenticación (Python/FastAPI)
+  # ─────────────────────────────────────
+  auth-service:
+    build: ./auth-service
+    ports:
+      - "${AUTH_SERVICE_PORT:-8085}:8085"
+    environment:
+      - DATABASE_URL=postgresql://${AUTH_DB_USER:-postgres}:${AUTH_DB_PASSWORD:-postgres}@db-auth:5432/${AUTH_DB_NAME:-authdb}
+      - RABBITMQ_URL=${RABBITMQ_URL:-amqp://${RABBITMQ_USER:-guest}:${RABBITMQ_PASSWORD:-guest}@rabbitmq:5672/}
+      - JWT_SECRET=${JWT_SECRET:-changeme-super-secret-key-for-dev}
+      - ADMIN_USERNAME=${ADMIN_USERNAME:-admin}
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD:-admin123}
+      - ADMIN_EMAIL=${ADMIN_EMAIL:-admin@empresa.com}
+      - ACCESS_TOKEN_EXPIRE_MINUTES=${ACCESS_TOKEN_EXPIRE_MINUTES:-60}
+      - RESET_TOKEN_EXPIRE_MINUTES=${RESET_TOKEN_EXPIRE_MINUTES:-60}
+    depends_on:
+      db-auth:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    networks:
+      - microservices-net
+    restart: on-failure:5
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+        reservations:
+          cpus: '0.1'
+          memory: 64M
+    healthcheck:
+      test: [ "CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8085/health')" ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 40s
+
+  # ─────────────────────────────────────
+  # Base de Datos — Auth (PostgreSQL)
+  # ─────────────────────────────────────
+  db-auth:
+    image: postgres:15-alpine
+    container_name: db-auth
+    environment:
+      - POSTGRES_USER=${AUTH_DB_USER:-postgres}
+      - POSTGRES_PASSWORD=${AUTH_DB_PASSWORD:-postgres}
+      - POSTGRES_DB=${AUTH_DB_NAME:-authdb}
+    volumes:
+      - auth-data:/var/lib/postgresql/data
+    networks:
+      - microservices-net
+    restart: unless-stopped
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U ${AUTH_DB_USER:-postgres} -d ${AUTH_DB_NAME:-authdb}" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  # ─────────────────────────────────────
   # Servicio de Empleados (Python/FastAPI)
   # ─────────────────────────────────────
   empleados-service:
@@ -323,6 +424,8 @@ volumes:
     name: notificaciones-data
   perfiles-data:
     name: perfiles-data
+  auth-data:
+    name: auth-data
 
 # ─────────────────────────────────────
 # Red interna de microservicios

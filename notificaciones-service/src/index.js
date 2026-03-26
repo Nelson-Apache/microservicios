@@ -73,12 +73,15 @@ async function initRabbitMQ() {
 
     await channel.assertExchange(exchange, 'topic', { durable: true });
 
-    // Cola dedicada exlusivamente a este servicio
+    // Cola dedicada exclusivamente a este servicio
     const q = await channel.assertQueue('notificaciones_queue', { durable: true });
 
-    // "Bindear" las dos llaves de ruteo
+    // Eventos de empleados (Reto 3)
     await channel.bindQueue(q.queue, exchange, 'empleado.creado');
     await channel.bindQueue(q.queue, exchange, 'empleado.eliminado');
+    // Eventos de seguridad del auth-service (Reto 4)
+    await channel.bindQueue(q.queue, exchange, 'usuario.creado');
+    await channel.bindQueue(q.queue, exchange, 'usuario.recuperacion');
 
     logger.info('Conectado a RabbitMQ, esperando mensajes...');
 
@@ -91,30 +94,44 @@ async function initRabbitMQ() {
       let tipo = "";
       let destinatario = eventData.email || 'soporte@empresa.com';
       let mensajeStr = "";
+      // Para eventos de empleados se usa eventData.id; los eventos de usuario no lo tienen
       let empleadoId = eventData.id ? String(eventData.id) : null;
 
       if (routingKey === 'empleado.creado') {
+        // Notificación de bienvenida al incorporarse (Reto 3)
         tipo = "BIENVENIDA";
         mensajeStr = `Bienvenido ${eventData.nombre} al equipo.`;
+
       } else if (routingKey === 'empleado.eliminado') {
+        // Notificación de desvinculación (Reto 3)
         tipo = "DESVINCULACION";
         mensajeStr = `Su cuenta ha sido desvinculada, ${eventData.nombre}.`;
+
+      } else if (routingKey === 'usuario.creado') {
+        // Notificación de seguridad: el empleado debe establecer su contraseña (Reto 4)
+        tipo = "SEGURIDAD";
+        mensajeStr = `Para establecer o recuperar su contraseña, utilice el siguiente token: ${eventData.token}`;
+
+      } else if (routingKey === 'usuario.recuperacion') {
+        // Notificación de seguridad: recuperación de contraseña solicitada (Reto 4)
+        tipo = "SEGURIDAD";
+        mensajeStr = `Para establecer o recuperar su contraseña, utilice el siguiente token: ${eventData.token}`;
       }
 
-      // Simulación de envío por Log (Requerimiento)
+      // Simulación de envío de correo electrónico mediante log
       logger.info(`[NOTIFICACIÓN] Tipo: ${tipo} | Para: ${destinatario} | Mensaje: "${mensajeStr}"`);
 
-      // Guardado en Base de Datos PostgreSQL (requerimiento)
+      // Persistencia en base de datos
       try {
         await pool.query(`
-                    INSERT INTO notificaciones (id, tipo, destinatario, mensaje, fecha_envio, empleado_id) 
-                    VALUES ($1, $2, $3, $4, $5, $6)
-                `, [uuidv4(), tipo, destinatario, mensajeStr, new Date(), empleadoId]);
+          INSERT INTO notificaciones (id, tipo, destinatario, mensaje, fecha_envio, empleado_id)
+          VALUES ($1, $2, $3, $4, $5, $6)
+        `, [uuidv4(), tipo, destinatario, mensajeStr, new Date(), empleadoId]);
       } catch (error) {
         logger.error('Error insertando notificacion', { error: error.message });
       }
 
-      channel.ack(msg); // Marcamos el mensaje como procesado exitosamente
+      channel.ack(msg); // Marcar mensaje como procesado exitosamente
     });
   } catch (error) {
     logger.error('Error conectando a RabbitMQ, reintentando...', { error: error.message });
