@@ -9,12 +9,12 @@ services:
       - "${GATEWAY_PORT:-8000}:8000"
     environment:
       - JWT_SECRET=${JWT_SECRET:-changeme-super-secret-key-for-dev}
-      - AUTH_SERVICE_URL=http://auth-service:8085
-      - EMPLEADOS_SERVICE_URL=http://empleados-service:8080
-      - DEPARTAMENTOS_SERVICE_URL=http://departamentos-service:8080
-      - NOTIFICACIONES_SERVICE_URL=http://notificaciones-service:3000
-      - PERFILES_SERVICE_URL=http://perfiles-service:3000
-      - REPORTES_SERVICE_URL=http://reportes-service:3000
+      - AUTH_SERVICE_URL=${AUTH_SERVICE_URL:-http://auth-service:8085}
+      - EMPLEADOS_SERVICE_URL=${EMPLEADOS_SERVICE_URL:-http://empleados-service:8080}
+      - DEPARTAMENTOS_SERVICE_URL=${DEPARTAMENTOS_SERVICE_URL:-http://departamentos-service:8080}
+      - NOTIFICACIONES_SERVICE_URL=${NOTIFICACIONES_SERVICE_URL:-http://notificaciones-service:3000}
+      - PERFILES_SERVICE_URL=${PERFILES_SERVICE_URL:-http://perfiles-service:3000}
+      - REPORTES_SERVICE_URL=${REPORTES_SERVICE_URL:-http://reportes-service:3000}
     depends_on:
       auth-service:
         condition: service_healthy
