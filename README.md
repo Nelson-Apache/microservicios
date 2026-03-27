@@ -608,5 +608,5 @@ docker stats
 ## Desarrollado por
 
 - Salomé Pérez Franco
-- Felipe
+- Felipe Hurtado
 - Nelson Apache Molina
