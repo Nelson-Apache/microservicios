@@ -1,6 +1,7 @@
 from fastapi import FastAPI, Request, status
 from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError
+from fastapi.openapi.utils import get_openapi
 from pydantic import ValidationError
 from app.routes import empleados
 from app.database import init_db, engine, EmpleadoModel
@@ -70,10 +71,16 @@ async def startup_event():
         logger.info("Conectando a la base de datos", extra={"event": "db_connection_start"})
         init_db()
         logger.info("Base de datos inicializada correctamente", extra={"event": "db_initialized"})
+    except Exception as e:
+        logger.error("Error al inicializar la base de datos", extra={"event": "db_init_error", "error": str(e)})
+        sys.exit(1)
+
+    # Conectar a RabbitMQ de forma no bloqueante: si falla, el servicio sigue
+    # activo y reconectará automáticamente al intentar publicar un evento.
+    try:
         await rabbitmq_client.connect()
     except Exception as e:
-        logger.error("Error al inicializar la base de datos o RabbitMQ", extra={"event": "db_init_error", "error": str(e)})
-        sys.exit(1)
+        logger.warning("No se pudo conectar a RabbitMQ al arrancar. Se reintentará al publicar.", extra={"event": "rabbitmq_init_warning", "error": str(e)})
 
 @app.on_event("shutdown")
 async def shutdown_event():
@@ -83,6 +90,31 @@ async def shutdown_event():
 
 # Incluir routers
 app.include_router(empleados.router)
+
+
+def esquema_openapi_personalizado():
+    if app.openapi_schema:
+        return app.openapi_schema
+    esquema = get_openapi(
+        title=app.title,
+        version=app.version,
+        description=app.description,
+        routes=app.routes,
+    )
+    esquema.setdefault("components", {})["securitySchemes"] = {
+        "BearerAuth": {
+            "type": "http",
+            "scheme": "bearer",
+            "bearerFormat": "JWT",
+            "description": "Token JWT obtenido desde POST /auth/login",
+        }
+    }
+    esquema["security"] = [{"BearerAuth": []}]
+    app.openapi_schema = esquema
+    return esquema
+
+
+app.openapi = esquema_openapi_personalizado
 
 
 # ─────────────────────────────────────────────────────────────────────────────

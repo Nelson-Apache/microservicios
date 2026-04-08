@@ -38,7 +38,7 @@ class RabbitMQClient:
                     await asyncio.sleep(5)
                 else:
                     logger.error("No se pudo conectar a RabbitMQ después de varios reintentos.")
-                    raise
+                    raise  # Se propaga; el llamador decide si es fatal o no
 
     async def close(self):
         if self.connection and not self.connection.is_closed:

@@ -152,8 +152,19 @@ const options = {
       version: '1.0.0',
       description: 'API para la gestión de Perfiles de Empleados',
     },
+    components: {
+      securitySchemes: {
+        BearerAuth: {
+          type: 'http',
+          scheme: 'bearer',
+          bearerFormat: 'JWT',
+          description: 'Token JWT obtenido desde POST /auth/login',
+        },
+      },
+    },
+    security: [{ BearerAuth: [] }],
   },
-  apis: ['./src/index.js'], // buscar en este archivo
+  apis: ['./src/index.js'],
 };
 const specs = swaggerJsdoc(options);
 app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(specs));
