@@ -1,6 +1,7 @@
 from fastapi import FastAPI, Request, status
 from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError
+from fastapi.openapi.utils import get_openapi
 from pydantic import ValidationError
 from app.routes import empleados
 from app.database import init_db, engine, EmpleadoModel
@@ -89,6 +90,31 @@ async def shutdown_event():
 
 # Incluir routers
 app.include_router(empleados.router)
+
+
+def esquema_openapi_personalizado():
+    if app.openapi_schema:
+        return app.openapi_schema
+    esquema = get_openapi(
+        title=app.title,
+        version=app.version,
+        description=app.description,
+        routes=app.routes,
+    )
+    esquema.setdefault("components", {})["securitySchemes"] = {
+        "BearerAuth": {
+            "type": "http",
+            "scheme": "bearer",
+            "bearerFormat": "JWT",
+            "description": "Token JWT obtenido desde POST /auth/login",
+        }
+    }
+    esquema["security"] = [{"BearerAuth": []}]
+    app.openapi_schema = esquema
+    return esquema
+
+
+app.openapi = esquema_openapi_personalizado
 
 
 # ─────────────────────────────────────────────────────────────────────────────
