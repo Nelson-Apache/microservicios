@@ -4,7 +4,10 @@
 FROM golang:1.21-alpine AS builder
 
 # Instalar herramientas necesarias
-RUN apk add --no-cache git && \
+# Para entornos con proxy o problemas de SSL
+RUN apk update && \
+    apk add --no-cache --allow-untrusted ca-certificates git && \
+    update-ca-certificates 2>/dev/null || true && \
     go install github.com/swaggo/swag/cmd/swag@v1.16.3
 
 WORKDIR /app

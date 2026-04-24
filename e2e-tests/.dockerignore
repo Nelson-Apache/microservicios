@@ -1,0 +1,28 @@
+# Ignorar archivos innecesarios para la imagen Docker
+
+# Directorios de build
+target/
+.mvn/
+
+# Archivos de configuración local
+.env
+.env.local
+
+# IDEs
+.idea/
+.vscode/
+*.iml
+
+# Sistema operativo
+.DS_Store
+Thumbs.db
+
+# Git
+.git/
+.gitignore
+
+# Documentación
+README.md
+
+# Logs
+*.log

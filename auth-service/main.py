@@ -69,6 +69,26 @@ def crear_usuario_admin_semilla():
             logger.info(f"Usuario ADMIN semilla creado: {nombre_admin}")
         else:
             logger.info(f"Usuario ADMIN semilla ya existe: {nombre_admin}")
+        
+        # Crear usuario USER de prueba si no existe
+        nombre_user = os.environ.get("USER_USERNAME", "usuario")
+        contrasena_user = os.environ.get("USER_PASSWORD", "usuario123")
+        email_user = os.environ.get("USER_EMAIL", "usuario@empresa.com")
+        
+        existente_user = db.query(Usuario).filter(Usuario.nombre_usuario == nombre_user).first()
+        if not existente_user:
+            user = Usuario(
+                nombre_usuario=nombre_user,
+                email=email_user,
+                hash_contrasena=contexto_hash.hash(contrasena_user),
+                rol="USER",
+                activo=True,
+            )
+            db.add(user)
+            db.commit()
+            logger.info(f"Usuario USER semilla creado: {nombre_user}")
+        else:
+            logger.info(f"Usuario USER semilla ya existe: {nombre_user}")
     finally:
         db.close()
 

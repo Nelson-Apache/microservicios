@@ -16,6 +16,7 @@
 # Java / Maven
 # ─────────────────────────────────────────────────────────────────────────────
 departamentos-service/target/
+e2e-tests/target/
 *.class
 *.jar
 *.war

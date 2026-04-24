@@ -402,6 +402,38 @@ services:
       timeout: 5s
       retries: 5
 
+  # ─────────────────────────────────────
+  # Pruebas E2E BDD (Opcional)
+  # ─────────────────────────────────────
+  # Para ejecutar las pruebas dentro de Docker sin instalar Java/Maven localmente:
+  # docker-compose run --rm e2e-tests
+  e2e-tests:
+    build: ./e2e-tests
+    environment:
+      - BASE_URL=http://api-gateway:8000
+      - ADMIN_USER=${ADMIN_USER:-admin}
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD:-admin123}
+      - USER_USER=${USER_USER:-usuario}
+      - USER_PASSWORD=${USER_PASSWORD:-usuario123}
+      - JWT_SECRET=${JWT_SECRET:-changeme-super-secret-key-for-dev}
+    volumes:
+      - ./e2e-tests/target:/app/target
+    depends_on:
+      api-gateway:
+        condition: service_healthy
+      auth-service:
+        condition: service_healthy
+      empleados-service:
+        condition: service_healthy
+      departamentos-service:
+        condition: service_healthy
+    networks:
+      - microservices-net
+    profiles:
+      - testing
+    # No se inicia automáticamente con docker-compose up
+    # Ejecutar manualmente con: docker-compose run --rm e2e-tests
+
 # ─────────────────────────────────────
 # Volúmenes persistentes
 # ─────────────────────────────────────
