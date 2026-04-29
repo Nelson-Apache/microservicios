@@ -13,7 +13,6 @@ FROM jenkins/jenkins:lts-jdk17
 RUN jenkins-plugin-cli --plugins \
     workflow-aggregator \
     docker-workflow \
-    docker-pipeline \
     pipeline-stage-view \
     git \
     configuration-as-code \
