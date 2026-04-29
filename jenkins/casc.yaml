@@ -1,0 +1,104 @@
+# =====================================================
+# Jenkins Configuration as Code (JCasC)
+# =====================================================
+# Este archivo configura Jenkins automáticamente al iniciar:
+#   - Seguridad: usuario admin por defecto
+#   - SonarQube: conexión al servidor de análisis
+#   - Jobs: pipelines para cada microservicio
+# =====================================================
+
+jenkins:
+  systemMessage: |
+    ╔══════════════════════════════════════════════════════════════╗
+    ║  Jenkins CI — Sistema de Microservicios                     ║
+    ║  Configurado automáticamente con JCasC                      ║
+    ║  SonarQube: http://sonarqube:9000                           ║
+    ║  Docker Registry: http://docker-registry:5000               ║
+    ╚══════════════════════════════════════════════════════════════╝
+
+  securityRealm:
+    local:
+      allowsSignup: false
+      users:
+        - id: "admin"
+          password: "admin123"
+
+  authorizationStrategy:
+    loggedInUsersCanDoAnything:
+      allowAnonymousRead: false
+
+  numExecutors: 4
+  mode: NORMAL
+
+# ─── Configuración de SonarQube ───
+unclassified:
+  sonarGlobalConfiguration:
+    buildWrapperEnabled: true
+    installations:
+      - name: "SonarQube"
+        serverUrl: "http://sonarqube:9000"
+        triggers:
+          skipScmCause: false
+          skipUpstreamCause: false
+
+# ─── Jobs / Pipelines ───
+jobs:
+  # Pipeline para notificaciones-service (Node.js / Express)
+  - script: |
+      pipelineJob('notificaciones-service-pipeline') {
+        displayName('Notificaciones Service Pipeline (Node.js)')
+        description('Pipeline CI para notificaciones-service — Node.js/Express')
+
+        definition {
+          cpsScm {
+            scm {
+              git {
+                remote {
+                  url('https://github.com/Nelson-Apache/microservicios.git')
+                }
+                branches('*/felipe')
+              }
+            }
+            scriptPath('notificaciones-service/Jenkinsfile')
+            lightweight(true)
+          }
+        }
+
+        triggers {
+          scm('H/5 * * * *')
+        }
+
+        properties {
+          disableConcurrentBuilds()
+        }
+      }
+
+  # Pipeline para departamentos-service (Java / Spring Boot)
+  - script: |
+      pipelineJob('departamentos-service-pipeline') {
+        displayName('Departamentos Service Pipeline (Java/Spring Boot)')
+        description('Pipeline CI para departamentos-service — Java 17 / Spring Boot 3')
+
+        definition {
+          cpsScm {
+            scm {
+              git {
+                remote {
+                  url('https://github.com/Nelson-Apache/microservicios.git')
+                }
+                branches('*/felipe')
+              }
+            }
+            scriptPath('departamentos-service/Jenkinsfile')
+            lightweight(true)
+          }
+        }
+
+        triggers {
+          scm('H/5 * * * *')
+        }
+
+        properties {
+          disableConcurrentBuilds()
+        }
+      }

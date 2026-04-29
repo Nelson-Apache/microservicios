@@ -1,0 +1,231 @@
+// =====================================================
+// Pipeline CI — notificaciones-service (Node.js / Express)
+// =====================================================
+// Etapas: Checkout → Build → Test → SonarQube → Quality Gate → Package → E2E
+// Agente Docker efímero: node:18-alpine (mantiene Jenkins limpio)
+// =====================================================
+
+pipeline {
+    agent any
+
+    environment {
+        SERVICE_NAME    = 'notificaciones-service'
+        DOCKER_REGISTRY = 'localhost:5000'
+        IMAGE_NAME      = "${DOCKER_REGISTRY}/${SERVICE_NAME}"
+        IMAGE_TAG       = "${env.BUILD_NUMBER}"
+        SONAR_HOST_URL  = 'http://sonarqube:9000'
+    }
+
+    options {
+        timestamps()
+        ansiColor('xterm')
+        disableConcurrentBuilds()
+        timeout(time: 30, unit: 'MINUTES')
+    }
+
+    stages {
+
+        // ─── Stage 1: Checkout ───
+        stage('Checkout') {
+            steps {
+                echo "📥 Descargando código fuente..."
+                checkout scm
+            }
+        }
+
+        // ─── Stage 2: Build ───
+        stage('Build') {
+            agent {
+                docker {
+                    image 'node:18-alpine'
+                    args '-v $HOME/.npm:/root/.npm'
+                    reuseNode true
+                }
+            }
+            steps {
+                dir("${SERVICE_NAME}") {
+                    echo "🔨 Instalando dependencias..."
+                    sh 'npm ci'
+                }
+            }
+        }
+
+        // ─── Stage 3: Test + Cobertura ───
+        stage('Test') {
+            agent {
+                docker {
+                    image 'node:18-alpine'
+                    args '-v $HOME/.npm:/root/.npm'
+                    reuseNode true
+                }
+            }
+            steps {
+                dir("${SERVICE_NAME}") {
+                    echo "🧪 Ejecutando pruebas unitarias con cobertura..."
+                    sh 'npx jest --coverage --coverageReporters=lcov --coverageReporters=text --forceExit --detectOpenHandles'
+                }
+            }
+            post {
+                always {
+                    echo "📊 Archivando reportes de cobertura..."
+                }
+            }
+        }
+
+        // ─── Stage 4: SonarQube — Análisis estático ───
+        stage('SonarQube') {
+            agent {
+                docker {
+                    image 'sonarsource/sonar-scanner-cli:latest'
+                    args '''
+                        --network microservices-network
+                        -v $WORKSPACE:/usr/src
+                    '''
+                    reuseNode true
+                }
+            }
+            steps {
+                dir("${SERVICE_NAME}") {
+                    echo "🔍 Ejecutando análisis de SonarQube..."
+                    sh """
+                        sonar-scanner \
+                            -Dsonar.host.url=${SONAR_HOST_URL} \
+                            -Dsonar.login=admin \
+                            -Dsonar.password=admin123 \
+                            -Dsonar.projectKey=${SERVICE_NAME} \
+                            -Dsonar.projectName='Notificaciones Service' \
+                            -Dsonar.sources=src \
+                            -Dsonar.tests=tests \
+                            -Dsonar.javascript.lcov.reportPaths=coverage/lcov.info \
+                            -Dsonar.exclusions='**/node_modules/**,**/coverage/**'
+                    """
+                }
+            }
+        }
+
+        // ─── Stage 5: Quality Gate ───
+        stage('Quality Gate') {
+            steps {
+                echo "🚦 Esperando resultado del Quality Gate de SonarQube..."
+                script {
+                    // Esperar a que SonarQube procese el análisis
+                    sleep(time: 15, unit: 'SECONDS')
+
+                    // Consultar el estado del Quality Gate via API
+                    def qgResult = sh(
+                        script: """
+                            curl -s -u admin:admin123 \
+                                "http://sonarqube:9000/api/qualitygates/project_status?projectKey=${SERVICE_NAME}" \
+                                | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['projectStatus']['status'])"
+                        """,
+                        returnStdout: true
+                    ).trim()
+
+                    echo "📋 Resultado Quality Gate: ${qgResult}"
+
+                    if (qgResult != 'OK') {
+                        error "❌ Quality Gate FALLIDO: La cobertura no cumple el umbral mínimo del 70%. Estado: ${qgResult}"
+                    } else {
+                        echo "✅ Quality Gate APROBADO"
+                    }
+                }
+            }
+        }
+
+        // ─── Stage 6: Package — Docker Build ───
+        stage('Package') {
+            steps {
+                echo "🐋 Construyendo imagen Docker..."
+                script {
+                    sh """
+                        docker build -t ${SERVICE_NAME}:${IMAGE_TAG} ./${SERVICE_NAME}
+                        docker tag ${SERVICE_NAME}:${IMAGE_TAG} ${SERVICE_NAME}:latest
+                        docker tag ${SERVICE_NAME}:${IMAGE_TAG} ${IMAGE_NAME}:${IMAGE_TAG}
+                        docker tag ${SERVICE_NAME}:${IMAGE_TAG} ${IMAGE_NAME}:latest
+                    """
+
+                    echo "📤 Publicando imagen en registry local..."
+                    sh """
+                        docker push ${IMAGE_NAME}:${IMAGE_TAG}
+                        docker push ${IMAGE_NAME}:latest
+                    """
+
+                    echo "✅ Imagen publicada: ${IMAGE_NAME}:${IMAGE_TAG}"
+                }
+            }
+        }
+
+        // ─── Stage 7: E2E Tests — Pruebas BDD ───
+        stage('E2E Tests') {
+            steps {
+                echo "🧪 Levantando sistema completo para pruebas E2E..."
+                script {
+                    try {
+                        // Levantar todo el sistema
+                        sh '''
+                            docker-compose -f docker-compose.yml up -d \
+                                db-auth database-empleados database-departamentos \
+                                database-notificaciones database-perfiles \
+                                rabbitmq
+                        '''
+
+                        // Esperar a que las bases de datos y RabbitMQ estén listos
+                        echo "⏳ Esperando a que la infraestructura esté lista..."
+                        sh 'sleep 30'
+
+                        // Levantar los servicios de negocio
+                        sh '''
+                            docker-compose -f docker-compose.yml up -d \
+                                auth-service empleados-service departamentos-service \
+                                notificaciones-service perfiles-service reportes-service \
+                                api-gateway
+                        '''
+
+                        // Esperar a que los servicios estén saludables
+                        echo "⏳ Esperando a que los servicios estén saludables..."
+                        sh 'sleep 60'
+
+                        // Ejecutar pruebas BDD
+                        echo "🥒 Ejecutando pruebas BDD (Cucumber)..."
+                        sh 'docker-compose -f docker-compose.yml run --rm e2e-tests'
+
+                        echo "✅ Pruebas E2E completadas exitosamente"
+                    } catch (Exception e) {
+                        echo "❌ Falló la etapa E2E: ${e.getMessage()}"
+                        throw e
+                    }
+                }
+            }
+            post {
+                always {
+                    echo "🧹 Limpiando entorno E2E..."
+                    sh 'docker-compose -f docker-compose.yml down --remove-orphans || true'
+                }
+            }
+        }
+    }
+
+    post {
+        success {
+            echo """
+            ╔══════════════════════════════════════════════════╗
+            ║  ✅ Pipeline EXITOSO — ${SERVICE_NAME}          ║
+            ║  Build: #${env.BUILD_NUMBER}                    ║
+            ║  Imagen: ${IMAGE_NAME}:${IMAGE_TAG}             ║
+            ╚══════════════════════════════════════════════════╝
+            """
+        }
+        failure {
+            echo """
+            ╔══════════════════════════════════════════════════╗
+            ║  ❌ Pipeline FALLIDO — ${SERVICE_NAME}          ║
+            ║  Build: #${env.BUILD_NUMBER}                    ║
+            ║  Revisar logs para detalles del fallo           ║
+            ╚══════════════════════════════════════════════════╝
+            """
+        }
+        always {
+            cleanWs()
+        }
+    }
+}
