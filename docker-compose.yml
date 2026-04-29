@@ -24,7 +24,7 @@ services:
         condition: service_healthy
     networks:
       - microservices-net
-    restart: on-failure:5
+    restart: unless-stopped
     deploy:
       resources:
         limits:
@@ -37,8 +37,8 @@ services:
       test: [ "CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')" ]
       interval: 30s
       timeout: 5s
-      retries: 3
-      start_period: 30s
+      retries: 5
+      start_period: 90s
 
   # ─────────────────────────────────────
   # Servicio de Autenticación (Python/FastAPI)
@@ -63,7 +63,7 @@ services:
         condition: service_healthy
     networks:
       - microservices-net
-    restart: on-failure:5
+    restart: unless-stopped
     deploy:
       resources:
         limits:
@@ -76,8 +76,8 @@ services:
       test: [ "CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8085/health')" ]
       interval: 30s
       timeout: 5s
-      retries: 3
-      start_period: 40s
+      retries: 5
+      start_period: 90s
 
   # ─────────────────────────────────────
   # Base de Datos — Auth (PostgreSQL)
@@ -119,7 +119,7 @@ services:
         condition: service_healthy
     networks:
       - microservices-net
-    restart: on-failure:5
+    restart: unless-stopped
     deploy:
       resources:
         limits:
@@ -132,8 +132,8 @@ services:
       test: [ "CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/health')" ]
       interval: 30s
       timeout: 5s
-      retries: 3
-      start_period: 40s
+      retries: 5
+      start_period: 90s
 
   # ─────────────────────────────────────
   # Servicio de Departamentos (Java/Spring Boot) — multi-stage Dockerfile
