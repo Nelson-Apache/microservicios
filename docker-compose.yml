@@ -535,15 +535,10 @@ services:
 # ─────────────────────────────────────
 volumes:
   empleados-data:
-    name: vol-empleados
   departamentos-data:
-    name: vol-departamentos
   notificaciones-data:
-    name: notificaciones-data
   perfiles-data:
-    name: perfiles-data
   auth-data:
-    name: auth-data
   # Volúmenes CI/CD (Reto 6)
   jenkins_data:
     name: jenkins-data
@@ -564,4 +559,4 @@ volumes:
 networks:
   microservices-net:
     driver: bridge
-    name: microservices-network
+    name: ${NETWORK_NAME:-microservices-network}

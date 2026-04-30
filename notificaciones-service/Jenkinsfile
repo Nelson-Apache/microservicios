@@ -158,8 +158,7 @@ pipeline {
                 echo "🧪 Levantando sistema completo para pruebas E2E..."
                 script {
                     try {
-                        // Usar un project_name aislado y asignar puertos dinámicos para evitar conflictos con el entorno host
-                        def composeEnv = "COMPOSE_PROJECT_NAME=ci_${env.BUILD_NUMBER} GATEWAY_PORT=0 AUTH_SERVICE_PORT=0 RABBITMQ_PORT=0 RABBITMQ_WEB_PORT=0"
+                        def composeEnv = "COMPOSE_PROJECT_NAME=ci_${env.BUILD_NUMBER} NETWORK_NAME=ci_${env.BUILD_NUMBER}_net GATEWAY_PORT=0 AUTH_SERVICE_PORT=0 RABBITMQ_PORT=0 RABBITMQ_WEB_PORT=0"
                         
                         // Levantar infraestructura base
                         sh """
