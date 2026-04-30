@@ -86,7 +86,7 @@ class DepartamentoServiceImplTest {
         // Act & Assert
         assertThatThrownBy(() -> service.crear(validRequest))
                 .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("ya existe");
+                .hasMessageContaining("Ya existe");
 
         verify(repository, times(1)).existsById("IT");
         verify(repository, never()).save(any(Departamento.class));
