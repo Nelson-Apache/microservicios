@@ -730,13 +730,13 @@ Cada pipeline ejecuta las siguientes etapas secuenciales:
 - **Etapa en rojo** ❌ : El pipeline falló en esa etapa específica. Revisar el **Console Output** del build para ver el mensaje de error detallado.
 - **Etapa en gris** ⚪ : La etapa no se ejecutó porque una etapa anterior falló.
 
-### 🧨 Simulando Fallos para el Profesor (Demostración)
+### 🧨 Simulando Fallos para Demostración
 
-Para demostrarle al profesor que el pipeline realmente atrapa los errores y se detiene (fail-fast), debes introducir un error intencional, **hacer commit y push a GitHub** (ya que Jenkins descarga el código directamente desde el repositorio), y luego ejecutar el pipeline. 
+Para demostrar que el pipeline realmente atrapa los errores y se detiene (fail-fast), debes introducir un error intencional, **hacer commit y push a GitHub** (ya que Jenkins descarga el código directamente desde el repositorio), y luego ejecutar el pipeline. 
 
 Aquí tienes un ejemplo exacto paso a paso para cada etapa:
 
-#### 1. Demostrar fallo de Compilación (Etapa: Build)
+#### TEST 1. Demostrar fallo de Compilación (Etapa: Build)
 * **Objetivo:** Mostrar que si el código tiene errores de sintaxis, no avanza.
 * **Acción:** Rompe un archivo Java.
 * **Archivo a modificar:** `departamentos-service/src/main/java/com/empresa/departamentos/controller/DepartamentoController.java`
@@ -747,7 +747,7 @@ Aquí tienes un ejemplo exacto paso a paso para cada etapa:
   ```
 * **Resultado en Jenkins:** Fallará en la etapa **Build** con el error `[ERROR] COMPILATION ERROR`.
 
-#### 2. Demostrar fallo en Pruebas Unitarias (Etapa: Test)
+#### TEST 2. Demostrar fallo en Pruebas Unitarias (Etapa: Test)
 * **Objetivo:** Mostrar que si un test no pasa, la construcción se detiene antes de enviar a SonarQube.
 * **Acción:** Cambiar la expectativa de una prueba unitaria.
 * **Archivo a modificar:** `departamentos-service/src/test/java/com/empresa/departamentos/service/DepartamentoServiceImplTest.java`
@@ -758,7 +758,7 @@ Aquí tienes un ejemplo exacto paso a paso para cada etapa:
   ```
 * **Resultado en Jenkins:** Fallará en la etapa **Test** con el error `Expected: RRHH, Actual: IT`.
 
-#### 3. Demostrar fallo de Calidad (Etapa: Quality Gate)
+#### TEST 3. Demostrar fallo de Calidad (Etapa: Quality Gate)
 * **Objetivo:** Mostrar que si la cobertura de código baja del 70%, el código es rechazado.
 * **Acción:** Comentar una prueba unitaria para reducir la cobertura de `departamentos-service` al ~35%.
 * **Archivo a modificar:** `departamentos-service/src/test/java/com/empresa/departamentos/service/DepartamentoServiceImplTest.java`
@@ -769,7 +769,7 @@ Aquí tienes un ejemplo exacto paso a paso para cada etapa:
   ```
 * **Resultado en Jenkins:** Llegará hasta la etapa **Quality Gate**, la cual fallará y detendrá el pipeline con un mensaje rojo: `Quality Gate FALLIDO: La cobertura no cumple el umbral mínimo del 70%`.
 
-#### 4. Demostrar fallo de Integración E2E (Etapa: E2E Tests)
+#### TEST 4. Demostrar fallo de Integración E2E (Etapa: E2E Tests)
 * **Objetivo:** Mostrar que el sistema atrapa regresiones globales al probar toda la arquitectura.
 * **Acción:** Romper la lógica de un microservicio sin romper sus tests unitarios (para que llegue vivo a la etapa final).
 * **Archivo a modificar:** `departamentos-service/src/main/java/com/empresa/departamentos/service/DepartamentoServiceImpl.java`
@@ -807,3 +807,5 @@ microservicios/
 - Salomé Pérez Franco
 - Felipe Hurtado
 - Nelson Apache Molina
+
+## nelson
