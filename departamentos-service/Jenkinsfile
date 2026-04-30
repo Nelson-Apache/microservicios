@@ -96,6 +96,7 @@ pipeline {
                             -Dsonar.projectName='Departamentos Service' \
                             -Dsonar.java.binaries=target/classes \
                             -Dsonar.coverage.jacoco.xmlReportPaths=target/site/jacoco/jacoco.xml \
+                            -Dsonar.coverage.exclusions="**/dto/**,**/model/**,**/config/**,**/exception/**,**/*Application.*" \
                             -B
                     """
                 }

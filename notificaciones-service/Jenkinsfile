@@ -77,10 +77,7 @@ pipeline {
             agent {
                 docker {
                     image 'sonarsource/sonar-scanner-cli:latest'
-                    args '''
-                        --network microservices-network
-                        -v $WORKSPACE:/usr/src
-                    '''
+                    args '--network microservices-network'
                     reuseNode true
                 }
             }
