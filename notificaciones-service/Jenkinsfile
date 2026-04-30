@@ -170,6 +170,8 @@ pipeline {
                         echo "❌ Falló la etapa E2E: ${e.getMessage()}"
                         throw e
                     }
+                }
+            }
         }
     }
 
