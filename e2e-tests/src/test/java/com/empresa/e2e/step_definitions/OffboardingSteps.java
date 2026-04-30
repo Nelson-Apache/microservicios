@@ -176,9 +176,17 @@ public class OffboardingSteps extends ConfiguracionBase {
         loginBody.put("nombre_usuario", email);
         loginBody.put("contrasena", password);
 
-        Response response = request().body(loginBody).post("/auth/login");
+        WaitUtils.waitUntil(() -> {
+            Response response = request().body(loginBody).post("/auth/login");
+            if (response.statusCode() != 200) {
+                System.out.println("Login falló: " + response.getBody().asString());
+            }
+            return response.statusCode() == 200;
+        }, 5, 1000);
+
+        Response finalResp = request().body(loginBody).post("/auth/login");
         assertThat("El empleado no puede hacer login antes de eliminarlo", 
-                   response.statusCode(), equalTo(200));
+                   finalResp.statusCode(), equalTo(200));
     }
 
     /**

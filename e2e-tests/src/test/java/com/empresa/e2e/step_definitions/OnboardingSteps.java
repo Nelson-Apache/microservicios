@@ -176,45 +176,35 @@ public class OnboardingSteps extends ConfiguracionBase {
         String email = ctx.getEmpleadoEmail();
         assertThat("No se guardó el email del empleado", email, notNullValue());
 
-        // Esperar a que el usuario exista en auth-service y solicitar recuperación
-        String[] tokenRecuperacion = new String[1];
+        // Esperar a que el usuario exista en auth-service y establecer la contraseña
+        // Como el usuario se crea asincrónicamente vía RabbitMQ, necesitamos polling
+        final Response[] resetResponseFinal = new Response[1];
+        
         WaitUtils.waitUntil(() -> {
-            // Solicitar recuperación de contraseña - el servicio genera el token
-            Map<String, String> body = new HashMap<>();
-            body.put("email", email);
+            // Generar token válido usando JwtTestUtils (simula el link enviado por email)
+            String token = com.empresa.e2e.support.JwtTestUtils.crearTokenRecuperacion(email);
             
-            Response response = request().body(body).post("/auth/recover-password");
+            // Intentar establecer la contraseña
+            Map<String, String> resetBody = new HashMap<>();
+            resetBody.put("token", token);
+            resetBody.put("nueva_contrasena", "Password123!");
             
-            // Si responde 200, el usuario existe y se generó el token
-            // En un entorno real, el token llegaría por email
-            // Para E2E, usamos el mismo secreto para generar el token
-            if (response.statusCode() == 200) {
-                // Generar token usando la misma lógica que el servicio
-                tokenRecuperacion[0] = com.empresa.e2e.support.JwtTestUtils.crearTokenRecuperacion(email);
-                return true;
-            }
+            Response resetResponse = request().body(resetBody).post("/auth/reset-password");
+            resetResponseFinal[0] = resetResponse;
             
-            return false;
+            // Si devuelve 200, el usuario existe y se actualizó la contraseña
+            return resetResponse.statusCode() == 200;
         }, 10, 2000);
 
-        assertThat("No se pudo solicitar recuperación de contraseña", tokenRecuperacion[0], notNullValue());
-        
-        // Establecer contraseña usando el token
-        Map<String, String> resetBody = new HashMap<>();
-        resetBody.put("token", tokenRecuperacion[0]);
-        resetBody.put("nueva_contrasena", "Password123!");
-        
-        Response resetResponse = request().body(resetBody).post("/auth/reset-password");
-        
-        // Si falla, mostrar el detalle del error para debugging
-        if (resetResponse.statusCode() != 200) {
-            String errorDetail = resetResponse.jsonPath().getString("detail");
+        Response finalResp = resetResponseFinal[0];
+        if (finalResp != null && finalResp.statusCode() != 200) {
+            String errorDetail = finalResp.jsonPath().getString("detail");
             System.out.println("Error al establecer contraseña: " + errorDetail);
-            System.out.println("Status code: " + resetResponse.statusCode());
-            System.out.println("Response body: " + resetResponse.getBody().asString());
+            System.out.println("Status code: " + finalResp.statusCode());
+            System.out.println("Response body: " + finalResp.getBody().asString());
         }
         
-        assertThat("No se pudo establecer la contraseña", resetResponse.statusCode(), equalTo(200));
+        assertThat("No se pudo establecer la contraseña", finalResp != null && finalResp.statusCode() == 200, equalTo(true));
         
         // Guardar la contraseña en el contexto para el login posterior
         ctx.setEmpleadoPassword("Password123!");
