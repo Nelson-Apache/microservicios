@@ -160,15 +160,48 @@ pipeline {
                 echo "🧪 Levantando sistema completo para pruebas E2E..."
                 script {
                     try {
-                        echo "🥒 Ejecutando pruebas BDD (Cucumber) contra el entorno local existente..."
-                        // Usar el project name 'microservicios' para engancharse a la red de los contenedores que ya están corriendo en el host
-                        sh 'docker-compose -p microservicios -f docker-compose.yml run --rm e2e-tests'
+                        // Usar un project_name aislado y asignar puertos dinámicos para evitar conflictos con el entorno host
+                        def composeEnv = "COMPOSE_PROJECT_NAME=ci_${env.BUILD_NUMBER} GATEWAY_PORT=0 AUTH_SERVICE_PORT=0 RABBITMQ_PORT=0 RABBITMQ_WEB_PORT=0"
+                        
+                        // Levantar infraestructura base
+                        sh """
+                            ${composeEnv} docker-compose -f docker-compose.yml up -d \
+                                db-auth database-empleados database-departamentos \
+                                database-notificaciones database-perfiles \
+                                rabbitmq
+                        """
+
+                        // Esperar a que las bases de datos y RabbitMQ estén listos
+                        echo "⏳ Esperando a que la infraestructura esté lista..."
+                        sh 'sleep 30'
+
+                        // Levantar los servicios de negocio
+                        sh """
+                            ${composeEnv} docker-compose -f docker-compose.yml up -d \
+                                auth-service empleados-service departamentos-service \
+                                notificaciones-service perfiles-service reportes-service \
+                                api-gateway
+                        """
+
+                        // Esperar a que los servicios estén saludables
+                        echo "⏳ Esperando a que los servicios estén saludables..."
+                        sh 'sleep 60'
+
+                        // Ejecutar pruebas BDD
+                        echo "🥒 Ejecutando pruebas BDD (Cucumber)..."
+                        sh "${composeEnv} docker-compose -f docker-compose.yml run --rm e2e-tests"
 
                         echo "✅ Pruebas E2E completadas exitosamente"
                     } catch (Exception e) {
                         echo "❌ Falló la etapa E2E: ${e.getMessage()}"
                         throw e
                     }
+                }
+            }
+            post {
+                always {
+                    echo "🧹 Limpiando entorno E2E..."
+                    sh "COMPOSE_PROJECT_NAME=ci_${env.BUILD_NUMBER} docker-compose -f docker-compose.yml down --remove-orphans || true"
                 }
             }
         }

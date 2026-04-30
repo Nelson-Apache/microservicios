@@ -84,7 +84,6 @@ services:
   # ─────────────────────────────────────
   db-auth:
     image: postgres:15-alpine
-    container_name: db-auth
     environment:
       - POSTGRES_USER=${AUTH_DB_USER:-postgres}
       - POSTGRES_PASSWORD=${AUTH_DB_PASSWORD:-postgres}
@@ -175,7 +174,6 @@ services:
     build:
       context: ./notificaciones-service
       dockerfile: Dockerfile
-    container_name: notificaciones-service
     environment:
       - NODE_ENV=production
       - PORT=3000
@@ -301,10 +299,9 @@ services:
   # ─────────────────────────────────────
   rabbitmq:
     image: rabbitmq:3.13-management-alpine
-    container_name: rabbitmq-broker
     ports:
-      - "5672:5672" # Puerto principal AMQP
-      - "15672:15672" # Interfaz web de administración
+      - "${RABBITMQ_PORT:-5672}:5672" # Puerto principal AMQP
+      - "${RABBITMQ_WEB_PORT:-15672}:15672" # Interfaz web de administración
     environment:
       - RABBITMQ_DEFAULT_USER=${RABBITMQ_USER:-guest}
       - RABBITMQ_DEFAULT_PASS=${RABBITMQ_PASSWORD:-guest}
@@ -329,7 +326,6 @@ services:
   # ─────────────────────────────────────
   database-notificaciones:
     image: postgres:15-alpine
-    container_name: db-notificaciones
     environment:
       - POSTGRES_USER=postgres
       - POSTGRES_PASSWORD=postgres
@@ -352,7 +348,6 @@ services:
     build:
       context: ./perfiles-service
       dockerfile: Dockerfile
-    container_name: perfiles-service
     environment:
       - NODE_ENV=production
       - PORT=3000
@@ -386,7 +381,6 @@ services:
   # ─────────────────────────────────────
   database-perfiles:
     image: postgres:15-alpine
-    container_name: db-perfiles
     environment:
       - POSTGRES_USER=postgres
       - POSTGRES_PASSWORD=postgres
@@ -451,7 +445,6 @@ services:
     build:
       context: ./jenkins
       dockerfile: Dockerfile
-    container_name: jenkins
     ports:
       - "9090:8080"       # Interfaz web de Jenkins
       - "50000:50000"     # Comunicación con agentes
@@ -478,7 +471,6 @@ services:
   # ─────────────────────────────────────
   sonarqube:
     image: sonarqube:lts-community
-    container_name: sonarqube
     ports:
       - "9000:9000"
     environment:
@@ -509,7 +501,6 @@ services:
   # ─────────────────────────────────────
   db-sonar:
     image: postgres:15-alpine
-    container_name: db-sonar
     environment:
       - POSTGRES_USER=sonar
       - POSTGRES_PASSWORD=sonar
@@ -531,7 +522,6 @@ services:
   # ─────────────────────────────────────
   docker-registry:
     image: registry:2
-    container_name: docker-registry
     ports:
       - "5000:5000"
     volumes:
