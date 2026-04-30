@@ -730,40 +730,57 @@ Cada pipeline ejecuta las siguientes etapas secuenciales:
 - **Etapa en rojo** ❌ : El pipeline falló en esa etapa específica. Revisar el **Console Output** del build para ver el mensaje de error detallado.
 - **Etapa en gris** ⚪ : La etapa no se ejecutó porque una etapa anterior falló.
 
-### Verificar que los fallos detienen el pipeline
+### 🧨 Simulando Fallos para el Profesor (Demostración)
 
-#### Test 1 — Fallo en prueba unitaria (Node.js)
+Para demostrarle al profesor que el pipeline realmente atrapa los errores y se detiene (fail-fast), debes introducir un error intencional, **hacer commit y push a GitHub** (ya que Jenkins descarga el código directamente desde el repositorio), y luego ejecutar el pipeline. 
 
-```bash
-# Modificar un test para que falle
-# En notificaciones-service/tests/notificaciones.test.js, cambiar:
-#   expect(response.status).toBe(200);
-# por:
-#   expect(response.status).toBe(999);
+Aquí tienes un ejemplo exacto paso a paso para cada etapa:
 
-# Ejecutar el pipeline → debe fallar en la etapa "Test"
-```
+#### 1. Demostrar fallo de Compilación (Etapa: Build)
+* **Objetivo:** Mostrar que si el código tiene errores de sintaxis, no avanza.
+* **Acción:** Rompe un archivo Java.
+* **Archivo a modificar:** `departamentos-service/src/main/java/com/empresa/departamentos/controller/DepartamentoController.java`
+* **Cambio exacto:** Ve a la línea 27 (dentro de `obtenerDepartamentos`) y quita el punto y coma `;` al final de `return departamentoService.obtenerTodos()`.
+* **Comandos:**
+  ```bash
+  git commit -am "Test error de compilacion" && git push origin felipe
+  ```
+* **Resultado en Jenkins:** Fallará en la etapa **Build** con el error `[ERROR] COMPILATION ERROR`.
 
-#### Test 2 — Cobertura por debajo del 70%
+#### 2. Demostrar fallo en Pruebas Unitarias (Etapa: Test)
+* **Objetivo:** Mostrar que si un test no pasa, la construcción se detiene antes de enviar a SonarQube.
+* **Acción:** Cambiar la expectativa de una prueba unitaria.
+* **Archivo a modificar:** `departamentos-service/src/test/java/com/empresa/departamentos/service/DepartamentoServiceImplTest.java`
+* **Cambio exacto:** En la línea 40, cambia `assertEquals("IT", resultado.getId());` por `assertEquals("RRHH", resultado.getId());`.
+* **Comandos:**
+  ```bash
+  git commit -am "Test error unitario" && git push origin felipe
+  ```
+* **Resultado en Jenkins:** Fallará en la etapa **Test** con el error `Expected: RRHH, Actual: IT`.
 
-```bash
-# Eliminar tests hasta que la cobertura caiga debajo del 70%
-# Ejecutar el pipeline → debe fallar en la etapa "Quality Gate"
-```
+#### 3. Demostrar fallo de Calidad (Etapa: Quality Gate)
+* **Objetivo:** Mostrar que si la cobertura de código baja del 70%, el código es rechazado.
+* **Acción:** Comentar una prueba unitaria para reducir la cobertura de `departamentos-service` al ~35%.
+* **Archivo a modificar:** `departamentos-service/src/test/java/com/empresa/departamentos/service/DepartamentoServiceImplTest.java`
+* **Cambio exacto:** Comenta (usando `/* ... */`) todo el método `@Test void testCrearDepartamento_Exito() { ... }`.
+* **Comandos:**
+  ```bash
+  git commit -am "Test baja cobertura" && git push origin felipe
+  ```
+* **Resultado en Jenkins:** Llegará hasta la etapa **Quality Gate**, la cual fallará y detendrá el pipeline con un mensaje rojo: `Quality Gate FALLIDO: La cobertura no cumple el umbral mínimo del 70%`.
 
-#### Test 3 — Error en Dockerfile
+#### 4. Demostrar fallo de Integración E2E (Etapa: E2E Tests)
+* **Objetivo:** Mostrar que el sistema atrapa regresiones globales al probar toda la arquitectura.
+* **Acción:** Romper la lógica de un microservicio sin romper sus tests unitarios (para que llegue vivo a la etapa final).
+* **Archivo a modificar:** `departamentos-service/src/main/java/com/empresa/departamentos/service/DepartamentoServiceImpl.java`
+* **Cambio exacto:** En el método `crear` (Línea 29), comenta la línea `departamento.setPresupuesto(...)` para que siempre se guarde un presupuesto en nulo/cero.
+* **Comandos:**
+  ```bash
+  git commit -am "Test error e2e" && git push origin felipe
+  ```
+* **Resultado en Jenkins:** Pasará la compilación, pasará SonarQube, levantará todos los 13 contenedores efímeros, pero fallará la prueba final en BDD y destruirá el entorno (`Falló la etapa E2E: java.lang.AssertionError`).
 
-```bash
-# Agregar una línea inválida al Dockerfile del servicio
-# Ejecutar el pipeline → debe fallar en la etapa "Package"
-```
-
-#### Test 4 — Fallo en prueba BDD
-
-```bash
-# Modificar un escenario .feature para que espere un resultado diferente
-# Ejecutar el pipeline → debe fallar en la etapa "E2E Tests"
-```
+> **⚠️ IMPORTANTE:** Recuerda revertir el código (`ctrl + z` o corregir el fallo), hacer `git commit` y `git push` nuevamente para volver a dejar el pipeline en color verde antes de hacer el siguiente ejemplo.
 
 ### Estructura de archivos CI (Reto 6)
 
