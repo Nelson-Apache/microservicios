@@ -653,8 +653,8 @@ En este proyecto de microservicios, CI es especialmente valioso porque:
 ### Cómo levantar el sistema completo (con CI)
 
 ```bash
-# 1. Levantar TODO el sistema (incluye Jenkins + SonarQube + Registry)
-docker-compose up --build
+# 1. Levantar TODO el sistema en segundo plano (incluye Jenkins + SonarQube + Registry)
+docker-compose up -d
 
 # 2. Esperar ~2-3 minutos a que todos los servicios estén listos
 
@@ -669,11 +669,14 @@ curl http://localhost:9000/api/system/status
 
 ### Configurar SonarQube (Quality Gate ≥ 70%)
 
-Después de que el sistema esté levantado, ejecutar el script de configuración automática:
+Después de que el sistema esté levantado, debemos configurar SonarQube. Para evitar problemas de compatibilidad en Windows, ejecutaremos el script directamente dentro del contenedor de Jenkins:
 
 ```bash
-# Desde la raíz del proyecto
-bash jenkins/setup-sonarqube.sh
+# Copiar el script al contenedor (opcional si ya está mapeado, pero recomendado)
+docker cp jenkins/setup-sonarqube.sh jenkins:/tmp/setup-sonarqube.sh
+
+# Quitar posibles saltos de línea de Windows y ejecutar el script apuntando al servidor interno
+docker exec jenkins bash -c "tr -d '\r' < /tmp/setup-sonarqube.sh > /tmp/setup-sonarqube_unix.sh && SONAR_URL=http://sonarqube:9000 bash /tmp/setup-sonarqube_unix.sh"
 ```
 
 Este script automáticamente:

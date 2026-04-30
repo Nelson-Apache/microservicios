@@ -20,7 +20,8 @@ RUN jenkins-plugin-cli --plugins \
     pipeline-utility-steps \
     ws-cleanup \
     timestamper \
-    ansicolor
+    ansicolor \
+    job-dsl
 
 # ─── Instalar cliente Docker dentro del contenedor Jenkins ───
 USER root
@@ -39,4 +40,4 @@ COPY casc.yaml /var/jenkins_home/casc.yaml
 ENV JAVA_OPTS="-Djenkins.install.runSetupWizard=false"
 ENV CASC_JENKINS_CONFIG="/var/jenkins_home/casc.yaml"
 
-USER jenkins
+# USER jenkins

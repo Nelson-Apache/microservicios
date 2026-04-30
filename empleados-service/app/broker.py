@@ -18,7 +18,7 @@ class RabbitMQClient:
     async def connect(self):
         import asyncio
         logger.info(f"Conectando a RabbitMQ en {RABBITMQ_URL}")
-        max_retries = 5
+        max_retries = 20
         for i in range(max_retries):
             try:
                 self.connection = await connect_robust(RABBITMQ_URL)
