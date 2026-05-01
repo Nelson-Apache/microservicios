@@ -605,6 +605,203 @@ docker stats
 
 ---
 
+## Reto 6 — Integración Continua (CI) con Jenkins
+
+### ¿Qué es la Integración Continua?
+
+La **Integración Continua (CI)** es una práctica de desarrollo que automatiza la compilación, pruebas y empaquetado del código en cada cambio. Garantiza que los problemas se detecten en minutos, no en días, al verificar cada commit en un entorno limpio y reproducible.
+
+En este proyecto de microservicios, CI es especialmente valioso porque:
+
+- **Múltiples servicios y lenguajes**: Cada servicio (Java, Node.js, Python, Go) se compila y prueba de forma independiente
+- **Detección temprana de rupturas**: Un cambio en un evento o endpoint que rompa otro servicio se detecta automáticamente
+- **Empaquetado consistente**: Las imágenes Docker se construyen de forma automatizada y reproducible
+
+### Arquitectura CI
+
+```text
+🐳 Docker Compose
+┌──────────────────────────────────────────────────────────────────┐
+│                                                                  │
+│  ⚙️ Jenkins :9090          🔍 SonarQube :9000                    │
+│  ┌─────────────────┐      ┌─────────────────┐                   │
+│  │ Pipelines CI    │──────│ Quality Gates   │                   │
+│  │ JCasC Config    │      │ Cobertura ≥70%  │                   │
+│  │ Docker Socket   │      │ Análisis código │                   │
+│  └────────┬────────┘      └────────┬────────┘                   │
+│           │                        │                             │
+│           ▼                        ▼                             │
+│  🗄️ Docker Registry :5000    🗄️ PostgreSQL (sonardb)              │
+│  ┌─────────────────┐      ┌─────────────────┐                   │
+│  │ Imágenes Docker │      │ Datos análisis  │                   │
+│  │ localhost:5000   │      │ db-sonar        │                   │
+│  └─────────────────┘      └─────────────────┘                   │
+│                                                                  │
+│  Microservicios (empleados, departamentos, notificaciones, ...) │
+└──────────────────────────────────────────────────────────────────┘
+```
+
+### URLs de acceso y credenciales
+
+| Servicio | URL | Usuario | Contraseña |
+| --- | --- | --- | --- |
+| **Jenkins** | <http://localhost:9090> | `admin` | `admin123` |
+| **SonarQube** | <http://localhost:9000> | `admin` | `admin123` |
+| **Docker Registry** | <http://localhost:5000> | — | — |
+| **RabbitMQ** | <http://localhost:15672> | `guest` | `guest` |
+
+### Cómo levantar el sistema completo (con CI)
+
+```bash
+# 1. Levantar TODO el sistema en segundo plano (incluye Jenkins + SonarQube + Registry)
+docker-compose up -d
+
+# 2. Esperar ~2-3 minutos a que todos los servicios estén listos
+
+# 3. Verificar que Jenkins está accesible
+curl http://localhost:9090
+
+# 4. Verificar que SonarQube está accesible
+curl http://localhost:9000/api/system/status
+```
+
+> **Nota**: Jenkins se configura automáticamente gracias a JCasC (Jenkins Configuration as Code). Los pipelines para `notificaciones-service` y `departamentos-service` se crean solos al iniciar.
+
+### Configurar SonarQube (Quality Gate ≥ 70%)
+
+Después de que el sistema esté levantado, debemos configurar SonarQube. Para evitar problemas de compatibilidad en Windows, ejecutaremos el script directamente dentro del contenedor de Jenkins:
+
+```bash
+# Copiar el script al contenedor (opcional si ya está mapeado, pero recomendado)
+docker cp jenkins/setup-sonarqube.sh jenkins:/tmp/setup-sonarqube.sh
+
+# Quitar posibles saltos de línea de Windows y ejecutar el script apuntando al servidor interno
+docker exec jenkins bash -c "tr -d '\r' < /tmp/setup-sonarqube.sh > /tmp/setup-sonarqube_unix.sh && SONAR_URL=http://sonarqube:9000 bash /tmp/setup-sonarqube_unix.sh"
+```
+
+Este script automáticamente:
+1. Cambia la contraseña por defecto de SonarQube
+2. Crea un Quality Gate llamado `CI-Pipeline-Gate` con cobertura ≥ 70%
+3. Configura el webhook de SonarQube → Jenkins
+4. Crea los proyectos en SonarQube
+
+#### Configuración manual del Webhook (alternativa)
+
+Si el script no funciona, configurar manualmente en SonarQube:
+
+1. Ir a <http://localhost:9000> → **Administration** → **Configuration** → **Webhooks**
+2. Crear un webhook con:
+   - **Name**: `Jenkins`
+   - **URL**: `http://jenkins:8080/sonarqube-webhook/`
+3. Guardar
+
+### Pipelines disponibles
+
+| Pipeline | Servicio | Lenguaje | Jenkinsfile |
+| --- | --- | --- | --- |
+| `notificaciones-service-pipeline` | notificaciones-service | Node.js / Express | `notificaciones-service/Jenkinsfile` |
+| `departamentos-service-pipeline` | departamentos-service | Java 17 / Spring Boot | `departamentos-service/Jenkinsfile` |
+
+### Etapas del pipeline
+
+Cada pipeline ejecuta las siguientes etapas secuenciales:
+
+| # | Etapa | Descripción | Si falla... |
+| --- | --- | --- | --- |
+| 1 | **Checkout** | Descarga el código del repositorio Git | Error de conexión al repo |
+| 2 | **Build** | Instala dependencias (`npm ci` / `mvn compile`) | Dependencias rotas o código no compila |
+| 3 | **Test** | Ejecuta pruebas unitarias con cobertura (Jest/JaCoCo) | Una prueba unitaria falla → pipeline se detiene |
+| 4 | **SonarQube** | Envía análisis estático al servidor SonarQube | Error de conexión a SonarQube |
+| 5 | **Quality Gate** | Verifica que la cobertura ≥ 70% | Cobertura insuficiente → pipeline se detiene |
+| 6 | **Package** | Construye imagen Docker y la publica en el registry local | Error en Dockerfile → pipeline se detiene |
+| 7 | **E2E Tests** | Levanta todo el sistema, ejecuta pruebas BDD (Cucumber) y limpia | Un escenario BDD falla → pipeline se detiene |
+
+### Cómo ejecutar un pipeline manualmente
+
+1. Ir a <http://localhost:9090>
+2. Iniciar sesión con `admin` / `admin123`
+3. Seleccionar el pipeline deseado (ej. `notificaciones-service-pipeline`)
+4. Hacer clic en **"Build Now"** (o "Construir ahora")
+5. Ver el progreso en **"Build History"** → clic en el número del build → **"Console Output"**
+
+### Interpretar los resultados
+
+- **Todas las etapas en verde** ✅ : El pipeline pasó correctamente. El código compila, las pruebas pasan, la cobertura es ≥ 70%, y la imagen Docker se construyó y publicó exitosamente.
+- **Etapa en rojo** ❌ : El pipeline falló en esa etapa específica. Revisar el **Console Output** del build para ver el mensaje de error detallado.
+- **Etapa en gris** ⚪ : La etapa no se ejecutó porque una etapa anterior falló.
+
+### 🧨 Simulando Fallos para Demostración
+
+Para demostrar que el pipeline realmente atrapa los errores y se detiene (fail-fast), debes introducir un error intencional, **hacer commit y push a GitHub** (ya que Jenkins descarga el código directamente desde el repositorio), y luego ejecutar el pipeline. 
+
+Aquí tienes un ejemplo exacto paso a paso para cada etapa:
+
+#### TEST 1. Demostrar fallo de Compilación (Etapa: Build)
+* **Objetivo:** Mostrar que si el código tiene errores de sintaxis, no avanza.
+* **Acción:** Rompe un archivo Java.
+* **Archivo a modificar:** `departamentos-service/src/main/java/com/empresa/departamentos/controller/DepartamentoController.java`
+* **Cambio exacto:** Ve a la línea 27 (dentro de `obtenerDepartamentos`) y quita el punto y coma `;` al final de `return departamentoService.obtenerTodos()`.
+* **Comandos:**
+  ```bash
+  git commit -am "Test error de compilacion" && git push origin felipe
+  ```
+* **Resultado en Jenkins:** Fallará en la etapa **Build** con el error `[ERROR] COMPILATION ERROR`.
+
+#### TEST 2. Demostrar fallo en Pruebas Unitarias (Etapa: Test)
+* **Objetivo:** Mostrar que si un test no pasa, la construcción se detiene antes de enviar a SonarQube.
+* **Acción:** Cambiar la expectativa de una prueba unitaria.
+* **Archivo a modificar:** `departamentos-service/src/test/java/com/empresa/departamentos/service/DepartamentoServiceImplTest.java`
+* **Cambio exacto:** En la línea 40, cambia `assertEquals("IT", resultado.getId());` por `assertEquals("RRHH", resultado.getId());`.
+* **Comandos:**
+  ```bash
+  git commit -am "Test error unitario" && git push origin felipe
+  ```
+* **Resultado en Jenkins:** Fallará en la etapa **Test** con el error `Expected: RRHH, Actual: IT`.
+
+#### TEST 3. Demostrar fallo de Calidad (Etapa: Quality Gate)
+* **Objetivo:** Mostrar que si la cobertura de código baja del 70%, el código es rechazado.
+* **Acción:** Comentar una prueba unitaria para reducir la cobertura de `departamentos-service` al ~35%.
+* **Archivo a modificar:** `departamentos-service/src/test/java/com/empresa/departamentos/service/DepartamentoServiceImplTest.java`
+* **Cambio exacto:** Comenta (usando `/* ... */`) todo el método `@Test void testCrearDepartamento_Exito() { ... }`.
+* **Comandos:**
+  ```bash
+  git commit -am "Test baja cobertura" && git push origin felipe
+  ```
+* **Resultado en Jenkins:** Llegará hasta la etapa **Quality Gate**, la cual fallará y detendrá el pipeline con un mensaje rojo: `Quality Gate FALLIDO: La cobertura no cumple el umbral mínimo del 70%`.
+
+#### TEST 4. Demostrar fallo de Integración E2E (Etapa: E2E Tests)
+* **Objetivo:** Mostrar que el sistema atrapa regresiones globales al probar toda la arquitectura.
+* **Acción:** Romper la lógica de un microservicio sin romper sus tests unitarios (para que llegue vivo a la etapa final).
+* **Archivo a modificar:** `departamentos-service/src/main/java/com/empresa/departamentos/service/DepartamentoServiceImpl.java`
+* **Cambio exacto:** En el método `crear` (Línea 29), comenta la línea `departamento.setPresupuesto(...)` para que siempre se guarde un presupuesto en nulo/cero.
+* **Comandos:**
+  ```bash
+  git commit -am "Test error e2e" && git push origin felipe
+  ```
+* **Resultado en Jenkins:** Pasará la compilación, pasará SonarQube, levantará todos los 13 contenedores efímeros, pero fallará la prueba final en BDD y destruirá el entorno (`Falló la etapa E2E: java.lang.AssertionError`).
+
+> **⚠️ IMPORTANTE:** Recuerda revertir el código (`ctrl + z` o corregir el fallo), hacer `git commit` y `git push` nuevamente para volver a dejar el pipeline en color verde antes de hacer el siguiente ejemplo.
+
+### Estructura de archivos CI (Reto 6)
+
+```text
+microservicios/
+├── docker-compose.yml                   # Actualizado con Jenkins, SonarQube, Registry
+├── jenkins/
+│   ├── Dockerfile                       # Jenkins personalizado con plugins y Docker
+│   ├── casc.yaml                        # JCasC — Configuración como Código
+│   └── setup-sonarqube.sh               # Script de configuración automática de SonarQube
+├── notificaciones-service/
+│   ├── Jenkinsfile                      # Pipeline CI (Node.js)
+│   └── sonar-project.properties         # Config SonarQube
+└── departamentos-service/
+    ├── Jenkinsfile                      # Pipeline CI (Java/Spring Boot)
+    ├── sonar-project.properties         # Config SonarQube
+    └── pom.xml                          # Actualizado con JaCoCo + sonar-maven-plugin
+```
+
+---
+
 ## Desarrollado por
 
 - Salomé Pérez Franco

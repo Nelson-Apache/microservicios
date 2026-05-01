@@ -33,7 +33,7 @@ class BrokerAuth:
 
     async def _conectar(self):
         """Establece conexión con RabbitMQ con reintentos automáticos."""
-        max_reintentos = 10
+        max_reintentos = 20
         for intento in range(max_reintentos):
             try:
                 self.conexion = await connect_robust(URL_RABBITMQ)

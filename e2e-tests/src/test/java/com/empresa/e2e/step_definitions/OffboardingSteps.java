@@ -131,15 +131,23 @@ public class OffboardingSteps extends ConfiguracionBase {
         }, 10, 2000);
 
         // Establecer contraseña para el empleado usando JwtTestUtils
-        String tokenRecuperacion = com.empresa.e2e.support.JwtTestUtils.crearTokenRecuperacion(email);
+        // Necesita WaitUtils porque el evento RabbitMQ de creación es asíncrono
+        final Response[] resetResponseFinal = new Response[1];
         String password = "Password123!";
         
-        Map<String, String> resetBody = new HashMap<>();
-        resetBody.put("token", tokenRecuperacion);
-        resetBody.put("nueva_contrasena", password);
+        WaitUtils.waitUntil(() -> {
+            String tokenRecuperacion = com.empresa.e2e.support.JwtTestUtils.crearTokenRecuperacion(email);
+            
+            Map<String, String> resetBody = new HashMap<>();
+            resetBody.put("token", tokenRecuperacion);
+            resetBody.put("nueva_contrasena", password);
+            
+            Response resetResponse = request().body(resetBody).post("/auth/reset-password");
+            resetResponseFinal[0] = resetResponse;
+            return resetResponse.statusCode() == 200;
+        }, 10, 2000);
         
-        Response resetResponse = request().body(resetBody).post("/auth/reset-password");
-        assertThat("No se pudo establecer la contraseña", resetResponse.statusCode(), equalTo(200));
+        assertThat("No se pudo establecer la contraseña", resetResponseFinal[0].statusCode(), equalTo(200));
         
         ctx.setEmpleadoPassword(password);
     }
@@ -176,9 +184,17 @@ public class OffboardingSteps extends ConfiguracionBase {
         loginBody.put("nombre_usuario", email);
         loginBody.put("contrasena", password);
 
-        Response response = request().body(loginBody).post("/auth/login");
+        WaitUtils.waitUntil(() -> {
+            Response response = request().body(loginBody).post("/auth/login");
+            if (response.statusCode() != 200) {
+                System.out.println("Login falló: " + response.getBody().asString());
+            }
+            return response.statusCode() == 200;
+        }, 5, 1000);
+
+        Response finalResp = request().body(loginBody).post("/auth/login");
         assertThat("El empleado no puede hacer login antes de eliminarlo", 
-                   response.statusCode(), equalTo(200));
+                   finalResp.statusCode(), equalTo(200));
     }
 
     /**
