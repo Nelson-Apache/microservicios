@@ -9,6 +9,16 @@ from sqlalchemy import text
 import sys
 import logging
 from pythonjsonlogger import jsonlogger
+import os
+
+# ── Observabilidad — Reto 7 ──
+from prometheus_fastapi_instrumentator import Instrumentator
+from opentelemetry import trace
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import BatchSpanProcessor
+from opentelemetry.exporter.zipkin.json import ZipkinExporter
+from opentelemetry.sdk.resources import Resource
+from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Configuración de logging estructurado en JSON
@@ -37,6 +47,19 @@ logger.setLevel(logging.INFO)
 # Aplicar también a uvicorn
 logging.getLogger("uvicorn.access").handlers = [logHandler]
 logging.getLogger("uvicorn.error").handlers = [logHandler]
+
+
+def _configurar_trazabilidad(nombre_servicio: str) -> None:
+    """Inicializa OpenTelemetry con exportador Zipkin."""
+    endpoint = os.environ.get("OTEL_EXPORTER_ZIPKIN_ENDPOINT", "http://zipkin:9411/api/v2/spans")
+    recurso = Resource.create({"service.name": nombre_servicio})
+    proveedor = TracerProvider(resource=recurso)
+    proveedor.add_span_processor(BatchSpanProcessor(ZipkinExporter(endpoint=endpoint)))
+    trace.set_tracer_provider(proveedor)
+
+
+_configurar_trazabilidad(os.environ.get("OTEL_SERVICE_NAME", "empleados-service"))
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Aplicación principal
@@ -90,6 +113,9 @@ async def shutdown_event():
 
 # Incluir routers
 app.include_router(empleados.router)
+
+FastAPIInstrumentor.instrument_app(app)
+Instrumentator().instrument(app).expose(app, endpoint="/metrics", include_in_schema=False)
 
 
 def esquema_openapi_personalizado():
@@ -203,29 +229,37 @@ async def root():
 async def health_check():
     """
     Verifica el estado del servicio y sus dependencias.
-    
+
     Retorna:
-        - 200 si el servicio y la BD están operativos
-        - 503 si hay problemas con la BD
+        - 200 si el servicio y todas las dependencias están operativas
+        - 503 si hay problemas con alguna dependencia
     """
     health_status = {
-        "status": "healthy",
+        "status": "UP",
         "service": "empleados-service",
         "version": "2.0.0",
         "checks": {}
     }
-    
-    # Verificar conexión a base de datos
+    degradado = False
+
     try:
         with engine.connect() as conn:
             conn.execute(text("SELECT 1"))
-        health_status["checks"]["database"] = "ok"
+        health_status["checks"]["database"] = "UP"
     except Exception as e:
-        health_status["status"] = "unhealthy"
-        health_status["checks"]["database"] = f"error: {str(e)}"
+        health_status["checks"]["database"] = "DOWN"
+        degradado = True
+
+    health_status["checks"]["messageBroker"] = (
+        "UP" if (rabbitmq_client.connection and not rabbitmq_client.connection.is_closed) else "DOWN"
+    )
+    if health_status["checks"]["messageBroker"] == "DOWN":
+        degradado = True
+
+    if degradado:
+        health_status["status"] = "DOWN"
         return JSONResponse(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             content=health_status
         )
-    
     return health_status

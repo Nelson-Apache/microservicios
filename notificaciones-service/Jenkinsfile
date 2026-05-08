@@ -197,6 +197,13 @@ pipeline {
             }
             post {
                 always {
+                    echo "📊 Publicando reporte Cucumber en Jenkins..."
+                    cucumber(
+                        fileIncludePattern: 'e2e-tests/target/cucumber-reports/report.json',
+                        jsonReportDirectory: 'e2e-tests/target/cucumber-reports',
+                        reportTitle: 'Reporte E2E BDD — Cucumber',
+                        buildStatus: 'UNSTABLE'
+                    )
                     echo "🧹 Limpiando entorno E2E..."
                     sh "COMPOSE_PROJECT_NAME=ci_${env.BUILD_NUMBER} docker-compose -f docker-compose.yml down --remove-orphans || true"
                 }

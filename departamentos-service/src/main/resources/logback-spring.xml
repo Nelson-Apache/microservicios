@@ -1,19 +1,15 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <configuration>
     
-    <!-- Appender para consola con formato JSON -->
+    <!-- Appender para consola con formato JSON (incluye traceId para correlación con Zipkin) -->
     <appender name="CONSOLE_JSON" class="ch.qos.logback.core.ConsoleAppender">
         <encoder class="net.logstash.logback.encoder.LogstashEncoder">
-            <!-- Campos personalizados -->
             <customFields>{"service":"departamentos-service"}</customFields>
-            
-            <!-- Incluir nombres de logger -->
             <includeContext>false</includeContext>
-            
-            <!-- Incluir detalles del caller (clase y método) -->
-            <includeCallerData>true</includeCallerData>
-            
-            <!-- Campos a incluir -->
+            <includeCallerData>false</includeCallerData>
+            <!-- traceId y spanId se inyectan automáticamente via MDC por Micrometer Tracing -->
+            <includeMdcKeyName>traceId</includeMdcKeyName>
+            <includeMdcKeyName>spanId</includeMdcKeyName>
             <fieldNames>
                 <timestamp>timestamp</timestamp>
                 <version>[ignore]</version>

@@ -15,6 +15,9 @@ services:
       - NOTIFICACIONES_SERVICE_URL=${NOTIFICACIONES_SERVICE_URL:-http://notificaciones-service:3000}
       - PERFILES_SERVICE_URL=${PERFILES_SERVICE_URL:-http://perfiles-service:3000}
       - REPORTES_SERVICE_URL=${REPORTES_SERVICE_URL:-http://reportes-service:3000}
+      - OTEL_SERVICE_NAME=api-gateway
+      - OTEL_EXPORTER_ZIPKIN_ENDPOINT=http://zipkin:9411/api/v2/spans
+      - OTEL_PROPAGATORS=tracecontext,baggage
     depends_on:
       auth-service:
         condition: service_healthy
@@ -56,6 +59,9 @@ services:
       - ADMIN_EMAIL=${ADMIN_EMAIL:-admin@empresa.com}
       - ACCESS_TOKEN_EXPIRE_MINUTES=${ACCESS_TOKEN_EXPIRE_MINUTES:-60}
       - RESET_TOKEN_EXPIRE_MINUTES=${RESET_TOKEN_EXPIRE_MINUTES:-60}
+      - OTEL_SERVICE_NAME=auth-service
+      - OTEL_EXPORTER_ZIPKIN_ENDPOINT=http://zipkin:9411/api/v2/spans
+      - OTEL_PROPAGATORS=tracecontext,baggage
     depends_on:
       db-auth:
         condition: service_healthy
@@ -109,6 +115,9 @@ services:
       - DATABASE_URL=postgresql://${EMPLEADOS_DB_USER:-postgres}:${EMPLEADOS_DB_PASSWORD:-postgres}@${EMPLEADOS_DB_HOST:-database-empleados}:${EMPLEADOS_DB_PORT:-5432}/${EMPLEADOS_DB_NAME:-empleadosdb}
       - DEPARTAMENTOS_SERVICE_URL=${DEPARTAMENTOS_SERVICE_URL:-http://departamentos-service:8080}
       - RABBITMQ_URL=${RABBITMQ_URL:-amqp://${RABBITMQ_USER:-guest}:${RABBITMQ_PASSWORD:-guest}@rabbitmq:5672/}
+      - OTEL_SERVICE_NAME=empleados-service
+      - OTEL_EXPORTER_ZIPKIN_ENDPOINT=http://zipkin:9411/api/v2/spans
+      - OTEL_PROPAGATORS=tracecontext,baggage
     depends_on:
       database-empleados:
         condition: service_healthy
@@ -146,6 +155,9 @@ services:
       - DB_USER=${DEPARTAMENTOS_DB_USER:-postgres}
       - DB_PASSWORD=${DEPARTAMENTOS_DB_PASSWORD:-postgres}
       - PORT=${DEPARTAMENTOS_SERVICE_PORT:-8080}
+      - OTEL_SERVICE_NAME=departamentos-service
+      - ZIPKIN_ENDPOINT=http://zipkin:9411/api/v2/spans
+      - MANAGEMENT_ZIPKIN_TRACING_ENDPOINT=http://zipkin:9411/api/v2/spans
     depends_on:
       database-departamentos:
         condition: service_healthy
@@ -179,6 +191,8 @@ services:
       - PORT=3000
       - DATABASE_URL=postgresql://postgres:postgres@database-notificaciones:5432/notificacionesdb
       - RABBITMQ_URL=amqp://${RABBITMQ_USER:-guest}:${RABBITMQ_PASSWORD:-guest}@rabbitmq:5672/
+      - OTEL_SERVICE_NAME=notificaciones-service
+      - OTEL_EXPORTER_ZIPKIN_ENDPOINT=http://zipkin:9411/api/v2/spans
     depends_on:
       rabbitmq:
         condition: service_healthy
@@ -213,6 +227,8 @@ services:
       - PORT=${REPORTES_SERVICE_PORT:-3000}
       - EMPLEADOS_SERVICE_URL=${EMPLEADOS_SERVICE_URL:-http://empleados-service:8080}
       - DEPARTAMENTOS_SERVICE_URL=${DEPARTAMENTOS_SERVICE_URL:-http://departamentos-service:8080}
+      - OTEL_SERVICE_NAME=reportes-service
+      - OTEL_EXPORTER_ZIPKIN_ENDPOINT=http://zipkin:9411/api/v2/spans
     depends_on:
       empleados-service:
         condition: service_healthy
@@ -353,6 +369,8 @@ services:
       - PORT=3000
       - DATABASE_URL=postgresql://postgres:postgres@database-perfiles:5432/perfilesdb
       - RABBITMQ_URL=amqp://${RABBITMQ_USER:-guest}:${RABBITMQ_PASSWORD:-guest}@rabbitmq:5672/
+      - OTEL_SERVICE_NAME=perfiles-service
+      - OTEL_EXPORTER_ZIPKIN_ENDPOINT=http://zipkin:9411/api/v2/spans
     depends_on:
       rabbitmq:
         condition: service_healthy
@@ -395,6 +413,119 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+
+  # ═══════════════════════════════════════════════════════════
+  #  RETO 7 — OBSERVABILIDAD Y MONITOREO
+  # ═══════════════════════════════════════════════════════════
+
+  # ─────────────────────────────────────
+  # Prometheus — Recolector de métricas (Pull)
+  # ─────────────────────────────────────
+  prometheus:
+    image: prom/prometheus:latest
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./observability/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--web.enable-lifecycle'
+    networks:
+      - microservices-net
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+
+  # ─────────────────────────────────────
+  # Grafana — Visualización y alertas
+  # ─────────────────────────────────────
+  grafana:
+    image: grafana/grafana:latest
+    ports:
+      - "3001:3000"
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./observability/grafana/provisioning:/etc/grafana/provisioning
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_USERS_ALLOW_SIGN_UP=false
+      - GF_FEATURE_TOGGLES_ENABLE=alertingSimplifiedRouting
+      # Para Discord: reemplazar con el webhook real
+      - GF_DISCORD_WEBHOOK_URL=https://discord.com/api/webhooks/1502102235973288099/iJrArKIf3ca2xGvgiYkbFKLwqBgU2EhtywiqDF_clnTX6nUbZdfHnxAQxGM7aIt--Jsu
+    depends_on:
+      - prometheus
+      - loki
+    networks:
+      - microservices-net
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+
+  # ─────────────────────────────────────
+  # Loki — Agregación de logs
+  # ─────────────────────────────────────
+  loki:
+    image: grafana/loki:latest
+    ports:
+      - "3100:3100"
+    volumes:
+      - ./observability/loki/loki-config.yml:/etc/loki/local-config.yaml
+      - loki-data:/loki
+    command: -config.file=/etc/loki/local-config.yaml
+    networks:
+      - microservices-net
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+
+  # ─────────────────────────────────────
+  # Promtail — Agente recolector de logs Docker
+  # ─────────────────────────────────────
+  promtail:
+    image: grafana/promtail:latest
+    volumes:
+      - ./observability/promtail/promtail-config.yml:/etc/promtail/config.yml
+      - /var/run/docker.sock:/var/run/docker.sock
+    command: -config.file=/etc/promtail/config.yml
+    depends_on:
+      - loki
+    networks:
+      - microservices-net
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '0.25'
+          memory: 128M
+
+  # ─────────────────────────────────────
+  # Zipkin — Trazabilidad distribuida
+  # ─────────────────────────────────────
+  zipkin:
+    image: openzipkin/zipkin:latest
+    ports:
+      - "9411:9411"
+    networks:
+      - microservices-net
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
 
   # ─────────────────────────────────────
   # Pruebas E2E BDD (Opcional)
@@ -446,7 +577,7 @@ services:
       context: ./jenkins
       dockerfile: Dockerfile
     ports:
-      - "9090:8080"       # Interfaz web de Jenkins
+      - "8090:8080"       # Interfaz web de Jenkins (movido de 9090 → 8090 para no colisionar con Prometheus)
       - "50000:50000"     # Comunicación con agentes
     volumes:
       - jenkins_data:/var/jenkins_home
@@ -539,6 +670,11 @@ volumes:
   notificaciones-data:
   perfiles-data:
   auth-data:
+  # Volúmenes Observabilidad (Reto 7)
+  grafana-data:
+    name: grafana-data
+  loki-data:
+    name: loki-data
   # Volúmenes CI/CD (Reto 6)
   jenkins_data:
     name: jenkins-data

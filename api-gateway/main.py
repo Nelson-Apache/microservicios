@@ -7,6 +7,15 @@ import os
 import logging
 from pythonjsonlogger import jsonlogger
 
+# ── Observabilidad — Reto 7 ──
+from prometheus_fastapi_instrumentator import Instrumentator
+from opentelemetry import trace
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import BatchSpanProcessor
+from opentelemetry.exporter.zipkin.json import ZipkinExporter
+from opentelemetry.sdk.resources import Resource
+from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Configuración de logging estructurado en JSON
@@ -26,6 +35,15 @@ logger_raiz.addHandler(manejador_log)
 logger_raiz.setLevel(logging.INFO)
 
 logger = logging.getLogger(__name__)
+
+
+def _configurar_trazabilidad(nombre_servicio: str) -> None:
+    """Inicializa OpenTelemetry con exportador Zipkin."""
+    endpoint = os.environ.get("OTEL_EXPORTER_ZIPKIN_ENDPOINT", "http://zipkin:9411/api/v2/spans")
+    recurso = Resource.create({"service.name": nombre_servicio})
+    proveedor = TracerProvider(resource=recurso)
+    proveedor.add_span_processor(BatchSpanProcessor(ZipkinExporter(endpoint=endpoint)))
+    trace.set_tracer_provider(proveedor)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -60,6 +78,8 @@ SERVICIOS = {
 # ─────────────────────────────────────────────────────────────────────────────
 # Aplicación FastAPI
 # ─────────────────────────────────────────────────────────────────────────────
+
+_configurar_trazabilidad(os.environ.get("OTEL_SERVICE_NAME", "api-gateway"))
 
 app = FastAPI(
     title="API Gateway",
@@ -119,6 +139,10 @@ def esquema_openapi_personalizado():
 
 
 app.openapi = esquema_openapi_personalizado
+
+# Instrumentar con OpenTelemetry y exponer /metrics para Prometheus
+FastAPIInstrumentor.instrument_app(app)
+Instrumentator().instrument(app).expose(app, endpoint="/metrics", include_in_schema=False)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -182,7 +206,7 @@ class _ErrorHTTP(Exception):
 @app.get("/health", tags=["Gateway"], summary="Health check del gateway")
 async def verificar_salud():
     """Verifica que el API Gateway está operativo."""
-    return {"status": "healthy", "servicio": "api-gateway", "version": "1.0.0"}
+    return {"status": "UP", "service": "api-gateway", "version": "1.0.0"}
 
 
 # ─────────────────────────────────────────────────────────────────────────────

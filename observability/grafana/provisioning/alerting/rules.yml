@@ -1,0 +1,86 @@
+apiVersion: 1
+
+# Reglas de alerta del ecosistema. Vigilan disponibilidad y errores 5xx
+# sobre las métricas que Prometheus raspa desde cada microservicio.
+groups:
+  - orgId: 1
+    name: microservices-alerts
+    folder: Alertas
+    interval: 1m
+    rules:
+      - uid: servicio-caido
+        title: Servicio Caído
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange: { from: 300, to: 0 }
+            datasourceUid: prometheus-ds
+            model:
+              expr: up
+              instant: false
+              refId: A
+          - refId: C
+            relativeTimeRange: { from: 300, to: 0 }
+            datasourceUid: "-100"
+            model:
+              conditions:
+                - evaluator: { params: [1], type: lt }
+                  operator: { type: and }
+                  query: { params: [A] }
+                  reducer: { params: [], type: last }
+                  type: query
+              datasource: { type: __expr__, uid: "-100" }
+              expression: A
+              reducer: last
+              refId: C
+              type: threshold
+        noDataState: OK
+        execErrState: Alerting
+        for: 1m
+        annotations:
+          summary: "Servicio caído: {{ or $values.A.Labels.job \"desconocido\" }}"
+          description: "El servicio {{ or $values.A.Labels.job \"desconocido\" }} lleva 1 minuto sin responder al scraping de Prometheus."
+        labels:
+          severity: critical
+        isPaused: false
+
+      - uid: alta-tasa-errores
+        title: Alta Tasa de Errores 5xx
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange: { from: 300, to: 0 }
+            datasourceUid: prometheus-ds
+            model:
+              expr: |
+                (
+                  sum by (job) (rate(http_requests_total{status_code=~"5.."}[2m]))
+                  /
+                  sum by (job) (rate(http_requests_total[2m]))
+                ) * 100 > 10
+              instant: false
+              refId: A
+          - refId: C
+            relativeTimeRange: { from: 300, to: 0 }
+            datasourceUid: "-100"
+            model:
+              conditions:
+                - evaluator: { params: [0], type: gt }
+                  operator: { type: and }
+                  query: { params: [A] }
+                  reducer: { params: [], type: last }
+                  type: query
+              datasource: { type: __expr__, uid: "-100" }
+              expression: A
+              reducer: last
+              refId: C
+              type: threshold
+        noDataState: NoData
+        execErrState: Alerting
+        for: 1m
+        annotations:
+          summary: "Alta tasa de errores en: {{ or $values.A.Labels.job \"desconocido\" }}"
+          description: "El servicio {{ or $values.A.Labels.job \"desconocido\" }} supera el 10% de respuestas 5xx durante 1 minuto."
+        labels:
+          severity: warning
+        isPaused: false

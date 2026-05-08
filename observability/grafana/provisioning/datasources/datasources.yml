@@ -1,0 +1,21 @@
+apiVersion: 1
+
+# Grafana carga estas fuentes al arrancar para que el dashboard y las alertas
+# apunten siempre a los mismos backends dentro de la red Docker.
+datasources:
+  - name: Prometheus
+    type: prometheus
+    uid: prometheus-ds
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+    editable: false
+    jsonData:
+      timeInterval: 15s
+
+  - name: Loki
+    type: loki
+    uid: loki-ds
+    access: proxy
+    url: http://loki:3100
+    editable: false

@@ -12,6 +12,15 @@ import sys
 import logging
 from pythonjsonlogger import jsonlogger
 
+# ── Observabilidad — Reto 7 ──
+from prometheus_fastapi_instrumentator import Instrumentator
+from opentelemetry import trace
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import BatchSpanProcessor
+from opentelemetry.exporter.zipkin.json import ZipkinExporter
+from opentelemetry.sdk.resources import Resource
+from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Configuración de logging estructurado en JSON
@@ -35,6 +44,18 @@ logging.getLogger("uvicorn.access").handlers = [manejador_log]
 logging.getLogger("uvicorn.error").handlers = [manejador_log]
 
 logger = logging.getLogger(__name__)
+
+
+def _configurar_trazabilidad(nombre_servicio: str) -> None:
+    """Inicializa OpenTelemetry con exportador Zipkin."""
+    endpoint = os.environ.get("OTEL_EXPORTER_ZIPKIN_ENDPOINT", "http://zipkin:9411/api/v2/spans")
+    recurso = Resource.create({"service.name": nombre_servicio})
+    proveedor = TracerProvider(resource=recurso)
+    proveedor.add_span_processor(BatchSpanProcessor(ZipkinExporter(endpoint=endpoint)))
+    trace.set_tracer_provider(proveedor)
+
+
+_configurar_trazabilidad(os.environ.get("OTEL_SERVICE_NAME", "auth-service"))
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -138,6 +159,9 @@ app = FastAPI(
 
 app.include_router(router_auth)
 
+FastAPIInstrumentor.instrument_app(app)
+Instrumentator().instrument(app).expose(app, endpoint="/metrics", include_in_schema=False)
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Swagger con esquema BearerAuth
@@ -197,13 +221,24 @@ async def raiz():
 @app.get("/health", tags=["General"], summary="Health check del servicio")
 async def verificar_salud():
     """Verifica el estado del servicio y la conexión a la base de datos."""
-    estado = {"status": "healthy", "servicio": "auth-service", "version": "1.0.0", "checks": {}}
+    estado = {"status": "UP", "service": "auth-service", "version": "1.0.0", "checks": {}}
+    degradado = False
+
     try:
         with motor.connect() as conn:
             conn.execute(text("SELECT 1"))
-        estado["checks"]["base_de_datos"] = "ok"
+        estado["checks"]["database"] = "UP"
     except Exception as error:
-        estado["status"] = "unhealthy"
-        estado["checks"]["base_de_datos"] = f"error: {str(error)}"
+        estado["checks"]["database"] = "DOWN"
+        degradado = True
+
+    estado["checks"]["messageBroker"] = (
+        "UP" if (broker.conexion and not broker.conexion.is_closed) else "DOWN"
+    )
+    if estado["checks"]["messageBroker"] == "DOWN":
+        degradado = True
+
+    if degradado:
+        estado["status"] = "DOWN"
         return JSONResponse(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, content=estado)
     return estado
