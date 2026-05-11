@@ -449,6 +449,9 @@ services:
     image: grafana/grafana:latest
     ports:
       - "3001:3000"
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4
     volumes:
       - grafana-data:/var/lib/grafana
       - ./observability/grafana/provisioning:/etc/grafana/provisioning

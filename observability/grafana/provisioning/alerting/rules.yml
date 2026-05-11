@@ -2,6 +2,8 @@ apiVersion: 1
 
 # Reglas de alerta del ecosistema. Vigilan disponibilidad y errores 5xx
 # sobre las métricas que Prometheus raspa desde cada microservicio.
+# Usan pipeline Reduce + Math (no Classic Conditions) para preservar labels
+# por serie y que $labels.job esté disponible en las anotaciones.
 groups:
   - orgId: 1
     name: microservices-alerts
@@ -19,21 +21,23 @@ groups:
               expr: up
               instant: false
               refId: A
+          - refId: B
+            relativeTimeRange: { from: 300, to: 0 }
+            datasourceUid: "-100"
+            model:
+              datasource: { type: __expr__, uid: "-100" }
+              expression: A
+              reducer: last
+              refId: B
+              type: reduce
           - refId: C
             relativeTimeRange: { from: 300, to: 0 }
             datasourceUid: "-100"
             model:
-              conditions:
-                - evaluator: { params: [1], type: lt }
-                  operator: { type: and }
-                  query: { params: [A] }
-                  reducer: { params: [], type: last }
-                  type: query
               datasource: { type: __expr__, uid: "-100" }
-              expression: A
-              reducer: last
+              expression: $B < 1
               refId: C
-              type: threshold
+              type: math
         noDataState: OK
         execErrState: Alerting
         for: 1m
@@ -55,27 +59,29 @@ groups:
               expr: servicio_saludable
               instant: false
               refId: A
+          - refId: B
+            relativeTimeRange: { from: 300, to: 0 }
+            datasourceUid: "-100"
+            model:
+              datasource: { type: __expr__, uid: "-100" }
+              expression: A
+              reducer: last
+              refId: B
+              type: reduce
           - refId: C
             relativeTimeRange: { from: 300, to: 0 }
             datasourceUid: "-100"
             model:
-              conditions:
-                - evaluator: { params: [1], type: lt }
-                  operator: { type: and }
-                  query: { params: [A] }
-                  reducer: { params: [], type: last }
-                  type: query
               datasource: { type: __expr__, uid: "-100" }
-              expression: A
-              reducer: last
+              expression: $B < 1
               refId: C
-              type: threshold
+              type: math
         noDataState: OK
         execErrState: Alerting
         for: 1m
         annotations:
-          summary: "Base de datos caída en: {{ $labels.service }}"
-          description: "El servicio {{ $labels.service }} detectó que su base de datos lleva 1 minuto sin responder."
+          summary: "Base de datos caída en: {{ $labels.job }}"
+          description: "El servicio {{ $labels.job }} detectó que su base de datos lleva 1 minuto sin responder."
         labels:
           severity: critical
         isPaused: false
@@ -93,25 +99,27 @@ groups:
                   sum by (job) (rate(http_requests_total{status_code=~"5.."}[2m]))
                   /
                   sum by (job) (rate(http_requests_total[2m]))
-                ) * 100 > 10
+                ) * 100
               instant: false
               refId: A
+          - refId: B
+            relativeTimeRange: { from: 300, to: 0 }
+            datasourceUid: "-100"
+            model:
+              datasource: { type: __expr__, uid: "-100" }
+              expression: A
+              reducer: last
+              refId: B
+              type: reduce
           - refId: C
             relativeTimeRange: { from: 300, to: 0 }
             datasourceUid: "-100"
             model:
-              conditions:
-                - evaluator: { params: [0], type: gt }
-                  operator: { type: and }
-                  query: { params: [A] }
-                  reducer: { params: [], type: last }
-                  type: query
               datasource: { type: __expr__, uid: "-100" }
-              expression: A
-              reducer: last
+              expression: $B > 10
               refId: C
-              type: threshold
-        noDataState: NoData
+              type: math
+        noDataState: OK
         execErrState: Alerting
         for: 1m
         annotations:
