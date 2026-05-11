@@ -53,6 +53,12 @@ const totalHttp = new client.Counter({
   labelNames: ['method', 'route', 'status_code'],
 });
 
+const servicioSaludable = new client.Gauge({
+  name: 'servicio_saludable',
+  help: 'Servicio y dependencias operativas: 1=sí, 0=no',
+  labelNames: ['service'],
+});
+
 app.use(express.json());
 
 // Middleware de métricas HTTP
@@ -241,8 +247,10 @@ app.get('/health', async (req, res) => {
 
   if (degradado) {
     estado.status = 'DOWN';
+    servicioSaludable.labels({ service: 'notificaciones-service' }).set(0);
     return res.status(503).json(estado);
   }
+  servicioSaludable.labels({ service: 'notificaciones-service' }).set(1);
   res.json(estado);
 });
 
@@ -312,12 +320,23 @@ app.get('/notificaciones/:empleadoId', async (req, res) => {
   }
 });
 
+async function monitorearBD() {
+  try {
+    await pool.query('SELECT 1');
+    const brokerOk = estadoRabbitMQ === 'UP';
+    servicioSaludable.labels({ service: 'notificaciones-service' }).set(brokerOk ? 1 : 0);
+  } catch {
+    servicioSaludable.labels({ service: 'notificaciones-service' }).set(0);
+  }
+}
+
 // ─────────────────────────────────────────────
 // Iniciar servidor
 // ─────────────────────────────────────────────
 async function startServer() {
   await initDB();
   initRabbitMQ();
+  setInterval(monitorearBD, 30000);
   app.listen(PORT, () => {
     logger.info(`notificaciones-service corriendo en http://localhost:${PORT}`);
   });

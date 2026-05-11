@@ -13,6 +13,14 @@ import os
 
 # ── Observabilidad — Reto 7 ──
 from prometheus_fastapi_instrumentator import Instrumentator
+from prometheus_client import Gauge
+import asyncio
+
+SERVICIO_SALUDABLE = Gauge(
+    'servicio_saludable',
+    'Servicio y dependencias operativas: 1=sí, 0=no',
+    ['service']
+)
 from opentelemetry import trace
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
@@ -85,6 +93,20 @@ app = FastAPI(
 # ─────────────────────────────────────────────────────────────────────────────
 from app.broker import rabbitmq_client
 
+async def _monitorear_bd():
+    """Verifica la BD cada 30 s y actualiza la métrica servicio_saludable."""
+    while True:
+        try:
+            with engine.connect() as conn:
+                conn.execute(text("SELECT 1"))
+            db_ok = True
+        except Exception:
+            db_ok = False
+        broker_ok = bool(rabbitmq_client.connection and not rabbitmq_client.connection.is_closed)
+        SERVICIO_SALUDABLE.labels(service='empleados-service').set(1 if (db_ok and broker_ok) else 0)
+        await asyncio.sleep(30)
+
+
 @app.on_event("startup")
 async def startup_event():
     """
@@ -104,6 +126,8 @@ async def startup_event():
         await rabbitmq_client.connect()
     except Exception as e:
         logger.warning("No se pudo conectar a RabbitMQ al arrancar. Se reintentará al publicar.", extra={"event": "rabbitmq_init_warning", "error": str(e)})
+
+    asyncio.create_task(_monitorear_bd())
 
 @app.on_event("shutdown")
 async def shutdown_event():
@@ -258,8 +282,10 @@ async def health_check():
 
     if degradado:
         health_status["status"] = "DOWN"
+        SERVICIO_SALUDABLE.labels(service='empleados-service').set(0)
         return JSONResponse(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             content=health_status
         )
+    SERVICIO_SALUDABLE.labels(service='empleados-service').set(1)
     return health_status

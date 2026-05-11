@@ -14,6 +14,14 @@ from pythonjsonlogger import jsonlogger
 
 # ── Observabilidad — Reto 7 ──
 from prometheus_fastapi_instrumentator import Instrumentator
+from prometheus_client import Gauge
+import asyncio
+
+SERVICIO_SALUDABLE = Gauge(
+    'servicio_saludable',
+    'Servicio y dependencias operativas: 1=sí, 0=no',
+    ['service']
+)
 from opentelemetry import trace
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
@@ -118,6 +126,20 @@ def crear_usuario_admin_semilla():
 # Ciclo de vida de la aplicación
 # ─────────────────────────────────────────────────────────────────────────────
 
+async def _monitorear_bd():
+    """Verifica la BD cada 30 s y actualiza la métrica servicio_saludable."""
+    while True:
+        try:
+            with motor.connect() as conn:
+                conn.execute(text("SELECT 1"))
+            db_ok = True
+        except Exception:
+            db_ok = False
+        broker_ok = bool(broker.conexion and not broker.conexion.is_closed)
+        SERVICIO_SALUDABLE.labels(service='auth-service').set(1 if (db_ok and broker_ok) else 0)
+        await asyncio.sleep(30)
+
+
 @asynccontextmanager
 async def ciclo_de_vida(app: FastAPI):
     """Inicialización y apagado del servicio."""
@@ -130,6 +152,7 @@ async def ciclo_de_vida(app: FastAPI):
     except Exception as error:
         logger.error(f"Error al inicializar auth-service: {error}")
         sys.exit(1)
+    asyncio.create_task(_monitorear_bd())
     yield
     await broker.detener()
 
@@ -240,5 +263,7 @@ async def verificar_salud():
 
     if degradado:
         estado["status"] = "DOWN"
+        SERVICIO_SALUDABLE.labels(service='auth-service').set(0)
         return JSONResponse(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, content=estado)
+    SERVICIO_SALUDABLE.labels(service='auth-service').set(1)
     return estado

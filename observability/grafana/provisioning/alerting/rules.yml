@@ -38,8 +38,44 @@ groups:
         execErrState: Alerting
         for: 1m
         annotations:
-          summary: "Servicio caído: {{ or $values.A.Labels.job \"desconocido\" }}"
-          description: "El servicio {{ or $values.A.Labels.job \"desconocido\" }} lleva 1 minuto sin responder al scraping de Prometheus."
+          summary: "Servicio caído: {{ $labels.job }}"
+          description: "El servicio {{ $labels.job }} lleva 1 minuto sin responder al scraping de Prometheus."
+        labels:
+          severity: critical
+        isPaused: false
+
+      - uid: bd-caida
+        title: Base de Datos Caída
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange: { from: 300, to: 0 }
+            datasourceUid: prometheus-ds
+            model:
+              expr: servicio_saludable
+              instant: false
+              refId: A
+          - refId: C
+            relativeTimeRange: { from: 300, to: 0 }
+            datasourceUid: "-100"
+            model:
+              conditions:
+                - evaluator: { params: [1], type: lt }
+                  operator: { type: and }
+                  query: { params: [A] }
+                  reducer: { params: [], type: last }
+                  type: query
+              datasource: { type: __expr__, uid: "-100" }
+              expression: A
+              reducer: last
+              refId: C
+              type: threshold
+        noDataState: OK
+        execErrState: Alerting
+        for: 1m
+        annotations:
+          summary: "Base de datos caída en: {{ $labels.service }}"
+          description: "El servicio {{ $labels.service }} detectó que su base de datos lleva 1 minuto sin responder."
         labels:
           severity: critical
         isPaused: false
@@ -79,8 +115,8 @@ groups:
         execErrState: Alerting
         for: 1m
         annotations:
-          summary: "Alta tasa de errores en: {{ or $values.A.Labels.job \"desconocido\" }}"
-          description: "El servicio {{ or $values.A.Labels.job \"desconocido\" }} supera el 10% de respuestas 5xx durante 1 minuto."
+          summary: "Alta tasa de errores en: {{ $labels.job }}"
+          description: "El servicio {{ $labels.job }} supera el 10% de respuestas 5xx durante 1 minuto."
         labels:
           severity: warning
         isPaused: false
