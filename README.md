@@ -566,8 +566,6 @@ microservicios/
 ├── .env.example                    # Template de variables de entorno
 ├── .gitignore
 ├── README.md
-├── CLAUDE.md                       # Instrucciones para Claude Code
-├── PRD.md                          # Análisis de brechas y plan de implementación
 │
 ├── api-gateway/                    # Python/FastAPI — Proxy con JWT y RBAC
 │   ├── main.py
