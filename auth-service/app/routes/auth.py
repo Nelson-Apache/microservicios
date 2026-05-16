@@ -1,4 +1,5 @@
 from fastapi import APIRouter, HTTPException, status, Depends
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel, EmailStr
 from sqlalchemy.orm import Session
 from passlib.context import CryptContext
@@ -34,6 +35,49 @@ class SolicitudRestablecimiento(BaseModel):
     """Token de recuperación y nueva contraseña."""
     token: str
     nueva_contrasena: str
+
+
+class SolicitudCambioContrasena(BaseModel):
+    """Contraseña actual y nueva contraseña para usuario autenticado."""
+    contrasena_actual: str
+    nueva_contrasena: str
+
+
+# ─────────────────────────────────────────────────────────────────
+# Dependencia de autenticación
+# ─────────────────────────────────────────────────────────────────
+
+esquema_bearer = HTTPBearer()
+
+
+def obtener_usuario_actual(
+    credenciales: HTTPAuthorizationCredentials = Depends(esquema_bearer),
+    db: Session = Depends(obtener_db),
+) -> Usuario:
+    """Extrae y valida el JWT de acceso; retorna el Usuario autenticado."""
+    try:
+        payload = decodificar_token(credenciales.credentials)
+    except JWTError:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Token inválido o expirado.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    if payload.get("type") == "RESET_PASSWORD":
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Token de tipo incorrecto.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    nombre_usuario = payload.get("sub")
+    usuario = db.query(Usuario).filter(Usuario.nombre_usuario == nombre_usuario).first()
+    if not usuario or not usuario.activo:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Usuario no encontrado o inhabilitado.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    return usuario
 
 
 # ─────────────────────────────────────────────────────────────────
@@ -175,6 +219,8 @@ async def restablecer_contrasena(
             detail="Usuario no encontrado.",
         )
 
+    ya_estaba_activo = usuario.activo
+
     # Hashear nueva contraseña y activar cuenta
     usuario.hash_contrasena = contexto_hash.hash(solicitud.nueva_contrasena)
     usuario.activo = True
@@ -184,4 +230,54 @@ async def restablecer_contrasena(
         f"Contraseña restablecida",
         extra={"evento": "contrasena_restablecida", "usuario": nombre_usuario}
     )
+
+    # Publicar cuenta.activada solo cuando la cuenta pasa de inactiva a activa
+    if not ya_estaba_activo:
+        try:
+            await broker.publicar(
+                "cuenta.activada",
+                {"usuario_id": usuario.id, "email": usuario.email}
+            )
+        except Exception as error:
+            logger.error(
+                f"Error publicando cuenta.activada: {error}",
+                extra={"evento": "broker_error", "usuario": nombre_usuario}
+            )
+
     return {"mensaje": "Contraseña actualizada exitosamente. Ya puede iniciar sesión."}
+
+
+@router.post(
+    "/change-password",
+    summary="Cambiar contraseña (usuario autenticado)",
+    responses={
+        200: {"description": "Contraseña cambiada exitosamente"},
+        401: {"description": "Token inválido o contraseña actual incorrecta"},
+    },
+)
+async def cambiar_contrasena(
+    solicitud: SolicitudCambioContrasena,
+    usuario: Usuario = Depends(obtener_usuario_actual),
+    db: Session = Depends(obtener_db),
+):
+    """
+    Cambia la contraseña de un usuario **ya autenticado**.
+
+    Requiere el header `Authorization: Bearer <token>`.
+    Verifica que `contrasena_actual` coincida con el hash almacenado
+    antes de actualizar a `nueva_contrasena`.
+    """
+    if not contexto_hash.verify(solicitud.contrasena_actual, usuario.hash_contrasena):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="La contraseña actual es incorrecta.",
+        )
+
+    usuario.hash_contrasena = contexto_hash.hash(solicitud.nueva_contrasena)
+    db.commit()
+
+    logger.info(
+        "Contraseña cambiada por el usuario",
+        extra={"evento": "contrasena_cambiada", "usuario": usuario.nombre_usuario}
+    )
+    return {"mensaje": "Contraseña cambiada exitosamente."}

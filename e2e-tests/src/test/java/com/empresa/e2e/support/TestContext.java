@@ -83,11 +83,17 @@ public class TestContext {
      */
     private String   empleadoEmail;
     
-    /** 
+    /**
      * Contraseña del empleado establecida en el escenario actual.
      * Se usa para verificar que el empleado puede hacer login después del onboarding.
      */
     private String   empleadoPassword;
+
+    /**
+     * ID de la vacación creada en el escenario actual.
+     * Se usa para actualizar o finalizar la vacación en pasos posteriores.
+     */
+    private Integer  vacacionId;
 
     // ══════════════════════════════════════════════════════════════════════════
     // GETTERS / SETTERS
@@ -115,6 +121,9 @@ public class TestContext {
 
     public String getEmpleadoPassword() { return empleadoPassword; }
     public void setEmpleadoPassword(String password) { this.empleadoPassword = password; }
+
+    public Integer getVacacionId() { return vacacionId; }
+    public void setVacacionId(Integer id) { this.vacacionId = id; }
 
     // ══════════════════════════════════════════════════════════════════════════
     // HELPER PRIVADO PARA RESOLUCIÓN DE VARIABLES DE ENTORNO

@@ -12,6 +12,23 @@ import sys
 import logging
 from pythonjsonlogger import jsonlogger
 
+# ── Observabilidad — Reto 7 ──
+from prometheus_fastapi_instrumentator import Instrumentator
+from prometheus_client import Gauge
+import asyncio
+
+SERVICIO_SALUDABLE = Gauge(
+    'servicio_saludable',
+    'Servicio y dependencias operativas: 1=sí, 0=no',
+    ['service']
+)
+from opentelemetry import trace
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import BatchSpanProcessor
+from opentelemetry.exporter.zipkin.json import ZipkinExporter
+from opentelemetry.sdk.resources import Resource
+from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Configuración de logging estructurado en JSON
@@ -35,6 +52,18 @@ logging.getLogger("uvicorn.access").handlers = [manejador_log]
 logging.getLogger("uvicorn.error").handlers = [manejador_log]
 
 logger = logging.getLogger(__name__)
+
+
+def _configurar_trazabilidad(nombre_servicio: str) -> None:
+    """Inicializa OpenTelemetry con exportador Zipkin."""
+    endpoint = os.environ.get("OTEL_EXPORTER_ZIPKIN_ENDPOINT", "http://zipkin:9411/api/v2/spans")
+    recurso = Resource.create({"service.name": nombre_servicio})
+    proveedor = TracerProvider(resource=recurso)
+    proveedor.add_span_processor(BatchSpanProcessor(ZipkinExporter(endpoint=endpoint)))
+    trace.set_tracer_provider(proveedor)
+
+
+_configurar_trazabilidad(os.environ.get("OTEL_SERVICE_NAME", "auth-service"))
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -97,6 +126,20 @@ def crear_usuario_admin_semilla():
 # Ciclo de vida de la aplicación
 # ─────────────────────────────────────────────────────────────────────────────
 
+async def _monitorear_bd():
+    """Verifica la BD cada 30 s y actualiza la métrica servicio_saludable."""
+    while True:
+        try:
+            with motor.connect() as conn:
+                conn.execute(text("SELECT 1"))
+            db_ok = True
+        except Exception:
+            db_ok = False
+        broker_ok = bool(broker.conexion and not broker.conexion.is_closed)
+        SERVICIO_SALUDABLE.labels(service='auth-service').set(1 if (db_ok and broker_ok) else 0)
+        await asyncio.sleep(30)
+
+
 @asynccontextmanager
 async def ciclo_de_vida(app: FastAPI):
     """Inicialización y apagado del servicio."""
@@ -109,6 +152,7 @@ async def ciclo_de_vida(app: FastAPI):
     except Exception as error:
         logger.error(f"Error al inicializar auth-service: {error}")
         sys.exit(1)
+    asyncio.create_task(_monitorear_bd())
     yield
     await broker.detener()
 
@@ -137,6 +181,9 @@ app = FastAPI(
 )
 
 app.include_router(router_auth)
+
+FastAPIInstrumentor.instrument_app(app)
+Instrumentator().instrument(app).expose(app, endpoint="/metrics", include_in_schema=False)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -197,13 +244,26 @@ async def raiz():
 @app.get("/health", tags=["General"], summary="Health check del servicio")
 async def verificar_salud():
     """Verifica el estado del servicio y la conexión a la base de datos."""
-    estado = {"status": "healthy", "servicio": "auth-service", "version": "1.0.0", "checks": {}}
+    estado = {"status": "UP", "service": "auth-service", "version": "1.0.0", "checks": {}}
+    degradado = False
+
     try:
         with motor.connect() as conn:
             conn.execute(text("SELECT 1"))
-        estado["checks"]["base_de_datos"] = "ok"
+        estado["checks"]["database"] = "UP"
     except Exception as error:
-        estado["status"] = "unhealthy"
-        estado["checks"]["base_de_datos"] = f"error: {str(error)}"
+        estado["checks"]["database"] = "DOWN"
+        degradado = True
+
+    estado["checks"]["messageBroker"] = (
+        "UP" if (broker.conexion and not broker.conexion.is_closed) else "DOWN"
+    )
+    if estado["checks"]["messageBroker"] == "DOWN":
+        degradado = True
+
+    if degradado:
+        estado["status"] = "DOWN"
+        SERVICIO_SALUDABLE.labels(service='auth-service').set(0)
         return JSONResponse(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, content=estado)
+    SERVICIO_SALUDABLE.labels(service='auth-service').set(1)
     return estado

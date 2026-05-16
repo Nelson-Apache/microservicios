@@ -21,7 +21,8 @@ RUN jenkins-plugin-cli --plugins \
     ws-cleanup \
     timestamper \
     ansicolor \
-    job-dsl
+    job-dsl \
+    cucumber-reports
 
 # ─── Instalar cliente Docker dentro del contenedor Jenkins ───
 USER root

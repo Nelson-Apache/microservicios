@@ -1,0 +1,169 @@
+{
+  "id": null,
+  "uid": "microservices-obs",
+  "title": "Microservicios — Observabilidad",
+  "description": "Dashboard operativo del ecosistema: estado, tráfico, latencia y errores por servicio.",
+  "tags": ["microservicios", "observabilidad"],
+  "timezone": "browser",
+  "schemaVersion": 38,
+  "version": 1,
+  "refresh": "30s",
+  "time": { "from": "now-15m", "to": "now" },
+  "panels": [
+    {
+      "id": 1,
+      "type": "row",
+      "title": "Resumen del Sistema",
+      "description": "Agrupa los paneles que muestran el estado general de cada microservicio.",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 },
+      "collapsed": false
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Estado de Servicios",
+      "description": "Verde = UP | Rojo = DOWN",
+      "gridPos": { "h": 6, "w": 24, "x": 0, "y": 1 },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "orientation": "horizontal",
+        "textMode": "auto",
+        "colorMode": "background",
+        "graphMode": "none"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            { "type": "value", "options": { "0": { "text": "DOWN", "color": "red", "index": 0 } } },
+            { "type": "value", "options": { "1": { "text": "UP", "color": "green", "index": 1 } } }
+          ],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "red", "value": null },
+              { "color": "green", "value": 1 }
+            ]
+          },
+          "unit": "short"
+        }
+      },
+      "targets": [
+        { "datasource": { "uid": "prometheus-ds" }, "expr": "probe_success{job=\"health-api-gateway\"}", "legendFormat": "api-gateway", "refId": "A" },
+        { "datasource": { "uid": "prometheus-ds" }, "expr": "probe_success{job=\"health-auth-service\"}", "legendFormat": "auth-service", "refId": "B" },
+        { "datasource": { "uid": "prometheus-ds" }, "expr": "probe_success{job=\"health-empleados-service\"}", "legendFormat": "empleados-service", "refId": "C" },
+        { "datasource": { "uid": "prometheus-ds" }, "expr": "probe_success{job=\"health-departamentos-service\"}", "legendFormat": "departamentos-service", "refId": "D" },
+        { "datasource": { "uid": "prometheus-ds" }, "expr": "probe_success{job=\"health-notificaciones-service\"}", "legendFormat": "notificaciones-service", "refId": "E" },
+        { "datasource": { "uid": "prometheus-ds" }, "expr": "probe_success{job=\"health-perfiles-service\"}", "legendFormat": "perfiles-service", "refId": "F" },
+        { "datasource": { "uid": "prometheus-ds" }, "expr": "probe_success{job=\"health-reportes-service\"}", "legendFormat": "reportes-service", "refId": "G" },
+        { "datasource": { "uid": "prometheus-ds" }, "expr": "probe_success{job=\"health-vacaciones-service\"}", "legendFormat": "vacaciones-service", "refId": "H" }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "row",
+      "title": "Comportamiento del Tráfico",
+      "description": "Agrupa las métricas de solicitudes, latencia y errores HTTP.",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 7 },
+      "collapsed": false
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "Tasa de Peticiones por Servicio (req/s)",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "options": {
+        "tooltip": { "mode": "multi" },
+        "legend": { "displayMode": "table", "placement": "bottom" }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "custom": { "lineWidth": 2, "fillOpacity": 10 }
+        }
+      },
+      "targets": [
+        {
+          "datasource": { "uid": "prometheus-ds" },
+          "expr": "sum by (job) (rate(http_requests_total[1m]))",
+          "legendFormat": "{{job}}",
+          "refId": "A"
+        },
+        {
+          "datasource": { "uid": "prometheus-ds" },
+          "expr": "sum by (job) (rate(http_server_requests_seconds_count[1m]))",
+          "legendFormat": "{{job}} (java)",
+          "refId": "B"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Latencia Promedio por Servicio (s)",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+      "options": {
+        "tooltip": { "mode": "multi" },
+        "legend": { "displayMode": "table", "placement": "bottom" }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": { "lineWidth": 2, "fillOpacity": 10 },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 1 },
+              { "color": "red", "value": 2 }
+            ]
+          }
+        }
+      },
+      "targets": [
+        {
+          "datasource": { "uid": "prometheus-ds" },
+          "expr": "sum by (job) (rate(http_request_duration_seconds_sum[1m])) / sum by (job) (rate(http_request_duration_seconds_count[1m]))",
+          "legendFormat": "{{job}}",
+          "refId": "A"
+        },
+        {
+          "datasource": { "uid": "prometheus-ds" },
+          "expr": "sum by (job) (rate(http_server_requests_seconds_sum[1m])) / sum by (job) (rate(http_server_requests_seconds_count[1m]))",
+          "legendFormat": "{{job}} (java)",
+          "refId": "B"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "Errores HTTP 4xx y 5xx por Servicio",
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 16 },
+      "options": {
+        "tooltip": { "mode": "multi" },
+        "legend": { "displayMode": "table", "placement": "bottom" }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "custom": { "lineWidth": 2, "fillOpacity": 20 },
+          "color": { "mode": "palette-classic" }
+        }
+      },
+      "targets": [
+        {
+          "datasource": { "uid": "prometheus-ds" },
+          "expr": "sum by (job, status_code) (rate(http_requests_total{status_code=~\"[45]..\"}[1m]))",
+          "legendFormat": "{{job}} — {{status_code}}",
+          "refId": "A"
+        },
+        {
+          "datasource": { "uid": "prometheus-ds" },
+          "expr": "sum by (job, status) (rate(http_server_requests_seconds_count{status=~\"[45]..\"}[1m]))",
+          "legendFormat": "{{job}} — {{status}} (java)",
+          "refId": "B"
+        }
+      ]
+    }
+  ]
+}

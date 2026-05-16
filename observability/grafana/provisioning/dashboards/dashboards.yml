@@ -1,0 +1,14 @@
+apiVersion: 1
+
+# Registra el directorio desde el que Grafana descubrirá dashboards JSON.
+# El panel principal del sistema vive en microservices.json.
+providers:
+  - name: default
+    orgId: 1
+    folder: Microservicios
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 10
+    allowUiUpdates: true
+    options:
+      path: /etc/grafana/provisioning/dashboards

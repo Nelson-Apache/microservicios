@@ -1,8 +1,12 @@
+// Tracing debe ser el primero — instrumenta http y express antes de que se carguen
+require('./tracing');
+
 const express = require('express');
 const { v4: uuidv4 } = require('uuid');
 const winston = require('winston');
 const amqp = require('amqplib');
 const { Pool } = require('pg');
+const client = require('prom-client');
 
 // ─────────────────────────────────────────────
 // Configuración de Logging
@@ -29,7 +33,41 @@ const logger = winston.createLogger({
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// ── Métricas Prometheus ──
+client.collectDefaultMetrics({ prefix: 'perfiles_' });
+
+const duracionHttp = new client.Histogram({
+  name: 'http_request_duration_seconds',
+  help: 'Duración de peticiones HTTP en segundos',
+  labelNames: ['method', 'route', 'status_code'],
+  buckets: [0.05, 0.1, 0.5, 1, 2, 5],
+});
+
+const totalHttp = new client.Counter({
+  name: 'http_requests_total',
+  help: 'Total de peticiones HTTP recibidas',
+  labelNames: ['method', 'route', 'status_code'],
+});
+
+const servicioSaludable = new client.Gauge({
+  name: 'servicio_saludable',
+  help: 'Servicio y dependencias operativas: 1=sí, 0=no',
+  labelNames: ['service'],
+});
+
 app.use(express.json());
+
+// Middleware de métricas HTTP
+app.use((req, res, next) => {
+  const inicio = Date.now();
+  res.on('finish', () => {
+    const ruta = req.route ? req.route.path : req.path;
+    const duracion = (Date.now() - inicio) / 1000;
+    duracionHttp.observe({ method: req.method, route: ruta, status_code: res.statusCode }, duracion);
+    totalHttp.inc({ method: req.method, route: ruta, status_code: res.statusCode });
+  });
+  next();
+});
 
 // ─────────────────────────────────────────────
 // Conexión a Base de Datos PostgreSQL
@@ -63,10 +101,13 @@ async function initDB() {
 // ─────────────────────────────────────────────
 // Conexión a RabbitMQ y Consumo de Eventos
 // ─────────────────────────────────────────────
+let estadoRabbitMQ = 'DOWN';
+
 async function initRabbitMQ() {
   try {
     const rabbitUrl = process.env.RABBITMQ_URL || 'amqp://guest:guest@localhost:5672/';
     const connection = await amqp.connect(rabbitUrl);
+    estadoRabbitMQ = 'UP';
     const channel = await connection.createChannel();
     const exchange = 'rrhh_events';
 
@@ -75,9 +116,9 @@ async function initRabbitMQ() {
     // Cola dedicada exclusivamente a crear perfiles
     const q = await channel.assertQueue('perfiles_queue', { durable: true });
 
-    // Solo escuchamos la creación y eliminación de empleados para generar/borrar el perfil
     await channel.bindQueue(q.queue, exchange, 'empleado.creado');
     await channel.bindQueue(q.queue, exchange, 'empleado.eliminado');
+    await channel.bindQueue(q.queue, exchange, 'empleado.actualizado');
 
     logger.info('Conectado a RabbitMQ, esperando mensajes de empleados...');
 
@@ -128,11 +169,32 @@ async function initRabbitMQ() {
         } catch (error) {
           logger.error('Error eliminando perfil desde evento', { error: error.message, empleadoId });
         }
+      } else if (routingKey === 'empleado.actualizado') {
+        const eventData = JSON.parse(msg.content.toString());
+        const empleadoId = String(eventData.id);
+
+        try {
+          const existe = await pool.query('SELECT id FROM perfiles WHERE empleado_id = $1', [empleadoId]);
+          if (existe.rowCount > 0) {
+            await pool.query(`
+              UPDATE perfiles
+              SET nombre = COALESCE($1, nombre),
+                  email  = COALESCE($2, email)
+              WHERE empleado_id = $3
+            `, [eventData.nombre || null, eventData.email || null, empleadoId]);
+            logger.info(`Perfil sincronizado por empleado.actualizado para empleado ${empleadoId}`);
+          } else {
+            logger.info(`No existe perfil para sincronizar del empleado ${empleadoId}`);
+          }
+        } catch (error) {
+          logger.error('Error sincronizando perfil desde evento', { error: error.message, empleadoId });
+        }
       }
 
       channel.ack(msg); // Marcamos el mensaje como procesado
     });
   } catch (error) {
+    estadoRabbitMQ = 'DOWN';
     logger.error('Error conectando a RabbitMQ, reintentando...', { error: error.message });
     setTimeout(initRabbitMQ, 5000);
   }
@@ -182,12 +244,38 @@ app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(specs));
  *       200:
  *         description: Servicio funcionando
  */
-app.get('/health', (req, res) => {
-  res.json({
-    status: 'healthy',
+app.get('/health', async (req, res) => {
+  const estado = {
+    status: 'UP',
     service: 'perfiles-service',
-    version: '1.0.0'
-  });
+    version: '1.0.0',
+    checks: {}
+  };
+  let degradado = false;
+
+  try {
+    await pool.query('SELECT 1');
+    estado.checks.database = 'UP';
+  } catch (err) {
+    estado.checks.database = 'DOWN';
+    degradado = true;
+  }
+
+  estado.checks.messageBroker = estadoRabbitMQ;
+  if (estadoRabbitMQ === 'DOWN') degradado = true;
+
+  if (degradado) {
+    estado.status = 'DOWN';
+    servicioSaludable.labels({ service: 'perfiles-service' }).set(0);
+    return res.status(503).json(estado);
+  }
+  servicioSaludable.labels({ service: 'perfiles-service' }).set(1);
+  res.json(estado);
+});
+
+app.get('/metrics', async (req, res) => {
+  res.set('Content-Type', client.register.contentType);
+  res.end(await client.register.metrics());
 });
 
 /**
@@ -336,12 +424,23 @@ app.put('/perfiles/:empleadoId', async (req, res) => {
   }
 });
 
+async function monitorearBD() {
+  try {
+    await pool.query('SELECT 1');
+    const brokerOk = estadoRabbitMQ === 'UP';
+    servicioSaludable.labels({ service: 'perfiles-service' }).set(brokerOk ? 1 : 0);
+  } catch {
+    servicioSaludable.labels({ service: 'perfiles-service' }).set(0);
+  }
+}
+
 // ─────────────────────────────────────────────
 // Iniciar servidor
 // ─────────────────────────────────────────────
 async function startServer() {
   await initDB();
   initRabbitMQ();
+  setInterval(monitorearBD, 30000);
   app.listen(PORT, () => {
     logger.info(`perfiles-service corriendo en http://localhost:${PORT}`);
   });

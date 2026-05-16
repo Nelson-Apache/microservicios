@@ -2,10 +2,20 @@ from fastapi import FastAPI, Request
 from fastapi.responses import Response, JSONResponse
 from fastapi.openapi.utils import get_openapi
 import httpx
+import asyncio
 from jose import jwt, JWTError
 import os
 import logging
 from pythonjsonlogger import jsonlogger
+
+# ── Observabilidad — Reto 7 ──
+from prometheus_fastapi_instrumentator import Instrumentator
+from opentelemetry import trace
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import BatchSpanProcessor
+from opentelemetry.exporter.zipkin.json import ZipkinExporter
+from opentelemetry.sdk.resources import Resource
+from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -26,6 +36,15 @@ logger_raiz.addHandler(manejador_log)
 logger_raiz.setLevel(logging.INFO)
 
 logger = logging.getLogger(__name__)
+
+
+def _configurar_trazabilidad(nombre_servicio: str) -> None:
+    """Inicializa OpenTelemetry con exportador Zipkin."""
+    endpoint = os.environ.get("OTEL_EXPORTER_ZIPKIN_ENDPOINT", "http://zipkin:9411/api/v2/spans")
+    recurso = Resource.create({"service.name": nombre_servicio})
+    proveedor = TracerProvider(resource=recurso)
+    proveedor.add_span_processor(BatchSpanProcessor(ZipkinExporter(endpoint=endpoint)))
+    trace.set_tracer_provider(proveedor)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -54,12 +73,15 @@ SERVICIOS = {
     "notificaciones": os.environ.get("NOTIFICACIONES_SERVICE_URL", "http://notificaciones-service:3000"),
     "perfiles":       os.environ.get("PERFILES_SERVICE_URL",       "http://perfiles-service:3000"),
     "reportes":       os.environ.get("REPORTES_SERVICE_URL",       "http://reportes-service:3000"),
+    "vacaciones":     os.environ.get("VACACIONES_SERVICE_URL",     "http://vacaciones-service:8086"),
 }
 
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Aplicación FastAPI
 # ─────────────────────────────────────────────────────────────────────────────
+
+_configurar_trazabilidad(os.environ.get("OTEL_SERVICE_NAME", "api-gateway"))
 
 app = FastAPI(
     title="API Gateway",
@@ -119,6 +141,10 @@ def esquema_openapi_personalizado():
 
 
 app.openapi = esquema_openapi_personalizado
+
+# Instrumentar con OpenTelemetry y exponer /metrics para Prometheus
+FastAPIInstrumentor.instrument_app(app)
+Instrumentator().instrument(app).expose(app, endpoint="/metrics", include_in_schema=False)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -182,7 +208,54 @@ class _ErrorHTTP(Exception):
 @app.get("/health", tags=["Gateway"], summary="Health check del gateway")
 async def verificar_salud():
     """Verifica que el API Gateway está operativo."""
-    return {"status": "healthy", "servicio": "api-gateway", "version": "1.0.0"}
+    return {"status": "UP", "service": "api-gateway", "version": "1.0.0"}
+
+
+@app.get(
+    "/empleados/{id}",
+    tags=["Empleados"],
+    summary="Obtener empleado con su perfil (composición de datos)",
+)
+async def obtener_empleado_con_perfil(id: int, request: Request):
+    """
+    Llama en paralelo a empleados-service y perfiles-service y combina la respuesta.
+    Requiere token JWT válido.
+    """
+    if not es_ruta_publica(request.url.path):
+        try:
+            payload = validar_y_obtener_payload(request.headers.get("Authorization"))
+        except _ErrorHTTP as error_http:
+            return error_http.respuesta
+
+    cabeceras = {
+        k: v for k, v in request.headers.items()
+        if k.lower() not in ("host", "content-length", "transfer-encoding")
+    }
+
+    url_empleado = f"{SERVICIOS['empleados']}/empleados/{id}"
+    url_perfil = f"{SERVICIOS['perfiles']}/perfiles/{id}"
+
+    async with httpx.AsyncClient(timeout=10.0) as cliente:
+        tarea_empleado = cliente.get(url_empleado, headers=cabeceras)
+        tarea_perfil = cliente.get(url_perfil, headers=cabeceras)
+        resultados = await asyncio.gather(tarea_empleado, tarea_perfil, return_exceptions=True)
+
+    resp_empleado, resp_perfil = resultados
+
+    if isinstance(resp_empleado, Exception) or resp_empleado.status_code != 200:
+        codigo = 503 if isinstance(resp_empleado, Exception) else resp_empleado.status_code
+        detalle = "No disponible" if isinstance(resp_empleado, Exception) else resp_empleado.text
+        return JSONResponse(status_code=codigo, content={"error": detalle})
+
+    datos_empleado = resp_empleado.json()
+    datos_perfil = {}
+    if not isinstance(resp_perfil, Exception) and resp_perfil.status_code == 200:
+        datos_perfil = resp_perfil.json()
+
+    return JSONResponse(
+        status_code=200,
+        content={"empleado": datos_empleado, "perfil": datos_perfil},
+    )
 
 
 # ─────────────────────────────────────────────────────────────────────────────

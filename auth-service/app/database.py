@@ -1,5 +1,5 @@
 import os
-from sqlalchemy import create_engine, Column, Integer, String, Boolean
+from sqlalchemy import create_engine, Column, Integer, String, Boolean, text
 from sqlalchemy.orm import declarative_base, sessionmaker
 
 # URL de conexión a la base de datos del servicio de autenticación
@@ -27,11 +27,20 @@ class Usuario(Base):
     rol = Column(String(10), nullable=False, default="USER")
     # False hasta que el usuario establezca su contraseña vía reset-password
     activo = Column(Boolean, nullable=False, default=False)
+    # Referencia al empleado_id de empleados-service (para vincular eventos de vacaciones)
+    empleado_id = Column(Integer, nullable=True, index=True)
 
 
 def inicializar_db():
     """Crea todas las tablas en la base de datos si no existen."""
     Base.metadata.create_all(bind=motor)
+    # Migración no destructiva: agrega empleado_id si la tabla ya existía sin esa columna
+    with motor.connect() as conn:
+        try:
+            conn.execute(text("ALTER TABLE usuarios ADD COLUMN empleado_id INTEGER"))
+            conn.commit()
+        except Exception:
+            pass
 
 
 def obtener_db():

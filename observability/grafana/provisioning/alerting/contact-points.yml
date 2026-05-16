@@ -1,0 +1,18 @@
+apiVersion: 1
+
+# El contact point define a dónde se envían las alertas ya disparadas por Grafana.
+# En este caso se usa Discord como canal operativo.
+contactPoints:
+  - orgId: 1
+    name: Discord
+    receivers:
+      - uid: discord-cp
+        type: discord
+        settings:
+          # Reemplazar GF_DISCORD_WEBHOOK_URL en docker-compose con el webhook real
+          # Guía: Servidor Discord → Configuración → Integraciones → Webhooks
+          url: ${GF_DISCORD_WEBHOOK_URL}
+          use_discord_username: false
+          message: |
+            🚨 **Alerta**: {{ .CommonAnnotations.summary }}
+            📋 **Descripción**: {{ .CommonAnnotations.description }}

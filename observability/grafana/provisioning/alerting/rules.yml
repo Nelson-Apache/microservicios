@@ -1,0 +1,132 @@
+apiVersion: 1
+
+# Reglas de alerta del ecosistema. Vigilan disponibilidad y errores 5xx
+# sobre las métricas que Prometheus raspa desde cada microservicio.
+# Usan pipeline Reduce + Math (no Classic Conditions) para preservar labels
+# por serie y que $labels.job esté disponible en las anotaciones.
+groups:
+  - orgId: 1
+    name: microservices-alerts
+    folder: Alertas
+    interval: 1m
+    rules:
+      - uid: servicio-caido
+        title: Servicio Caído (Health Check)
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange: { from: 300, to: 0 }
+            datasourceUid: prometheus-ds
+            model:
+              # probe_success=0 → el /health del servicio no respondió 200
+              # Esto es más preciso que `up` porque verifica el estado real del servicio
+              expr: probe_success{job=~"health-.*"}
+              instant: false
+              refId: A
+          - refId: B
+            relativeTimeRange: { from: 300, to: 0 }
+            datasourceUid: "-100"
+            model:
+              datasource: { type: __expr__, uid: "-100" }
+              expression: A
+              reducer: last
+              refId: B
+              type: reduce
+          - refId: C
+            relativeTimeRange: { from: 300, to: 0 }
+            datasourceUid: "-100"
+            model:
+              datasource: { type: __expr__, uid: "-100" }
+              expression: $B < 1
+              refId: C
+              type: math
+        noDataState: OK
+        execErrState: Alerting
+        for: 1m
+        annotations:
+          summary: "Servicio caído: {{ $labels.servicio }}"
+          description: "El /health de {{ $labels.servicio }} lleva 1 minuto sin responder HTTP 200. Instancia: {{ $labels.instance }}"
+        labels:
+          severity: critical
+        isPaused: false
+
+      - uid: bd-caida
+        title: Base de Datos Caída
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange: { from: 300, to: 0 }
+            datasourceUid: prometheus-ds
+            model:
+              expr: servicio_saludable
+              instant: false
+              refId: A
+          - refId: B
+            relativeTimeRange: { from: 300, to: 0 }
+            datasourceUid: "-100"
+            model:
+              datasource: { type: __expr__, uid: "-100" }
+              expression: A
+              reducer: last
+              refId: B
+              type: reduce
+          - refId: C
+            relativeTimeRange: { from: 300, to: 0 }
+            datasourceUid: "-100"
+            model:
+              datasource: { type: __expr__, uid: "-100" }
+              expression: $B < 1
+              refId: C
+              type: math
+        noDataState: OK
+        execErrState: Alerting
+        for: 1m
+        annotations:
+          summary: "Base de datos caída en: {{ $labels.job }}"
+          description: "El servicio {{ $labels.job }} detectó que su base de datos lleva 1 minuto sin responder."
+        labels:
+          severity: critical
+        isPaused: false
+
+      - uid: alta-tasa-errores
+        title: Alta Tasa de Errores 5xx
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange: { from: 300, to: 0 }
+            datasourceUid: prometheus-ds
+            model:
+              expr: |
+                (
+                  sum by (job) (rate(http_requests_total{status_code=~"5.."}[2m]))
+                  /
+                  sum by (job) (rate(http_requests_total[2m]))
+                ) * 100
+              instant: false
+              refId: A
+          - refId: B
+            relativeTimeRange: { from: 300, to: 0 }
+            datasourceUid: "-100"
+            model:
+              datasource: { type: __expr__, uid: "-100" }
+              expression: A
+              reducer: last
+              refId: B
+              type: reduce
+          - refId: C
+            relativeTimeRange: { from: 300, to: 0 }
+            datasourceUid: "-100"
+            model:
+              datasource: { type: __expr__, uid: "-100" }
+              expression: $B > 10
+              refId: C
+              type: math
+        noDataState: OK
+        execErrState: Alerting
+        for: 1m
+        annotations:
+          summary: "Alta tasa de errores en: {{ $labels.job }}"
+          description: "El servicio {{ $labels.job }} supera el 10% de respuestas 5xx durante 1 minuto."
+        labels:
+          severity: warning
+        isPaused: false
