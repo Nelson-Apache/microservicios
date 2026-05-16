@@ -5,9 +5,18 @@
 # Variables de entorno con secretos
 .env
 
-# IDEs
+# Documentación interna y archivos de trabajo
+CLAUDE.md
+PRD.md
+PRD_Reto7_Observabilidad.md
+proyectoFinal.pdf
+reto7.pdf
+
+# IDEs y herramientas locales
 .vscode/
 .idea/
+.claude/
+.github/
 *.swp
 *.swo
 *~

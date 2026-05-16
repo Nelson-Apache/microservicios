@@ -1,6 +1,6 @@
 # Sistema de Microservicios — Gestión de Empleados y Departamentos
 
-Sistema distribuido de onboarding y offboarding de empleados implementado con **5 lenguajes de programación**, orquestado con **Docker Compose**, con comunicación sincrónica (HTTP REST), asincrónica (RabbitMQ) y seguridad centralizada mediante **JWT**.
+Sistema distribuido para gestionar el ciclo de vida completo del empleado (onboarding, vacaciones y offboarding), implementado con **5 lenguajes de programación**, orquestado con **Docker Compose**, con comunicación sincrónica (HTTP REST), asincrónica (RabbitMQ) y seguridad centralizada mediante **JWT**.
 
 ---
 
@@ -17,17 +17,18 @@ Cliente HTTP (Postman / curl / Swagger UI)
 └──────┬──────────────────────────────────────────────────────┘
        │                          │
        │  /auth/*  (sin JWT)      │  /empleados, /departamentos,
-       ▼                          │  /notificaciones, /perfiles,
-┌─────────────┐                   │  /reportes  (JWT requerido)
+       ▼                          │  /vacaciones, /notificaciones,
+┌─────────────┐                   │  /perfiles, /reportes  (JWT requerido)
 │ auth-service│                   ▼
 │   :8085     │   ┌─────────────────────────────────────────┐
 │  db-auth    │   │         Microservicios de negocio        │
 └──────┬──────┘   │                                         │
-       │          │  empleados-service   :8080 (Python)      │
+       │          │  empleados-service    :8080 (Python)     │
        │ Consume  │  departamentos-service :8081 (Java)      │
-       │ Publica  │  notificaciones-service :8082 (Node.js)  │
-       │          │  reportes-service    :8083 (Go)           │
-       │          │  perfiles-service    :8084 (Node.js)      │
+       │ Publica  │  notificaciones-service :3002 (Node.js)  │
+       │          │  reportes-service     :8083 (Go)          │
+       │          │  perfiles-service     :3001 (Node.js)    │
+       │          │  vacaciones-service   :8086 (Python)     │
        │          └──────────────────┬──────────────────────┘
        │                             │
        └──────────┐                  │
@@ -43,21 +44,35 @@ Cliente HTTP (Postman / curl / Swagger UI)
 
 ```text
 empleados-service  ──publica──►  empleado.creado
+                                 empleado.actualizado
                                  empleado.eliminado
                                         │
                      ┌──────────────────┼──────────────────┐
                      ▼                  ▼                   ▼
               notificaciones     perfiles-service     auth-service
                (BIENVENIDA/       (crear perfil/      (crear usuario /
-               DESVINCULACION)    inactivar perfil)   inhabilitar usuario)
-                                                           │
-                                         publica──►  usuario.creado
-                                         publica──►  usuario.recuperacion
+               DESVINCULACION)    actualizar perfil/  inhabilitar usuario)
+                                  inactivar perfil)        │
+                                                 publica──►  cuenta.activada
+                                                 publica──►  cuenta.desactivada
                                                            │
                                                            ▼
                                                    notificaciones
-                                                    (SEGURIDAD:
-                                                   token de acceso)
+                                                    (SEGURIDAD /
+                                                  VACACIONES / etc.)
+
+vacaciones-service ──publica──►  vacaciones.programadas
+                                 vacaciones.finalizadas
+                                        │
+                     ┌──────────────────┘
+                     ▼
+              auth-service
+               (desactiva / reactiva cuenta
+                y publica cuenta.desactivada / cuenta.activada)
+                     │
+                     ▼
+              notificaciones-service
+               (notifica al empleado)
 ```
 
 ---
@@ -67,12 +82,13 @@ empleados-service  ──publica──►  empleado.creado
 | Servicio | Lenguaje | Puerto | Base de datos | Swagger UI |
 | --- | --- | --- | --- | --- |
 | `api-gateway` | Python / FastAPI | **8000** | — | <http://localhost:8000/docs> |
-| `auth-service` | Python / FastAPI | 8085 | PostgreSQL (authdb) | <http://localhost:8085/docs> |
-| `empleados-service` | Python / FastAPI | 8080 | PostgreSQL (empleadosdb) | <http://localhost:8080/docs> |
-| `departamentos-service` | Java 17 / Spring Boot | 8081 | PostgreSQL (departamentosdb) | <http://localhost:8081/swagger-ui.html> |
-| `notificaciones-service` | Node.js / Express | 8082 | PostgreSQL (notificacionesdb) | <http://localhost:8082/api-docs> |
-| `reportes-service` | Go / net-http | 8083 | — | <http://localhost:8083/docs/index.html> |
-| `perfiles-service` | Node.js / Express | 8084 | PostgreSQL (perfilesdb) | — |
+| `auth-service` | Python / FastAPI | **8085** | PostgreSQL (authdb) | <http://localhost:8085/docs> |
+| `empleados-service` | Python / FastAPI | **8080** | PostgreSQL (empleadosdb) | <http://localhost:8080/docs> |
+| `departamentos-service` | Java 17 / Spring Boot | **8081** | PostgreSQL (departamentosdb) | <http://localhost:8081/swagger-ui.html> |
+| `notificaciones-service` | Node.js / Express | **3002** | PostgreSQL (notificacionesdb) | <http://localhost:3002/api-docs> |
+| `reportes-service` | Go / net-http | **8083** | — | <http://localhost:8083/docs/index.html> |
+| `perfiles-service` | Node.js / Express | **3001** | PostgreSQL (perfilesdb) | <http://localhost:3001/api-docs> |
+| `vacaciones-service` | Python / FastAPI | **8086** | PostgreSQL (vacacionesdb) | <http://localhost:8086/docs> |
 | `rabbitmq` | RabbitMQ | 5672 / 15672 | — | <http://localhost:15672> |
 
 > Nota: Los puertos individuales están expuestos para desarrollo y depuración. En uso normal, todas las peticiones deben ir a través del **API Gateway en :8000**.
@@ -91,8 +107,6 @@ Se eligió el patrón **API Gateway** sobre la alternativa de middleware por ser
 - **Simplicidad operativa**: Con interceptores por servicio, cada uno habría necesitado la misma `JWT_SECRET`, validación idéntica y manejo de errores duplicado en 4 lenguajes distintos.
 
 ### Clave secreta JWT
-
-La clave está definida en `.env.example` con fines académicos:
 
 ```env
 JWT_SECRET=changeme-super-secret-key-for-dev
@@ -133,7 +147,7 @@ Esta misma clave es inyectada via `docker-compose.yml` tanto al `auth-service` (
 }
 ```
 
-Se utiliza la **Opción A (stateless)**: el token es un JWT firmado con `HMAC SHA-256`. No requiere tabla adicional en base de datos; su autenticidad y expiración se verifican matemáticamente.
+Se utiliza el patrón **stateless**: el token es un JWT firmado con `HMAC SHA-256`. No requiere tabla adicional en base de datos; su autenticidad y expiración se verifican matemáticamente.
 
 ---
 
@@ -218,9 +232,10 @@ curl http://localhost:8000/health          # API Gateway
 curl http://localhost:8085/health          # Auth service
 curl http://localhost:8080/health          # Empleados
 curl http://localhost:8081/actuator/health # Departamentos
-curl http://localhost:8082/health          # Notificaciones
+curl http://localhost:3002/health          # Notificaciones
 curl http://localhost:8083/health          # Reportes
-curl http://localhost:8084/health          # Perfiles
+curl http://localhost:3001/health          # Perfiles
+curl http://localhost:8086/health          # Vacaciones
 ```
 
 ### 2. Obtener token de administrador
@@ -243,7 +258,7 @@ curl -X POST http://localhost:8000/departamentos \
 
 Respuesta esperada: `HTTP 201`
 
-### 4. Crear un empleado (requiere ADMIN)
+### 4. Crear un empleado — Onboarding (requiere ADMIN)
 
 ```bash
 curl -X POST http://localhost:8000/empleados \
@@ -265,10 +280,12 @@ Al crear el empleado ocurre la siguiente cadena de eventos:
 - `empleados-service` publica `empleado.creado`
 - `auth-service` consume el evento y crea un usuario inhabilitado para `juan@empresa.com`
 - `auth-service` publica `usuario.creado` con el token de establecimiento de contraseña
-- `notificaciones-service` consume `usuario.creado` e imprime en los logs:
+- `notificaciones-service` consume `usuario.creado` y registra notificación de tipo `SEGURIDAD`
+- `perfiles-service` consume `empleado.creado` y crea el perfil del empleado
 
-```text
-[NOTIFICACIÓN] Tipo: SEGURIDAD | Para: juan@empresa.com | Mensaje: "Para establecer o recuperar su contraseña, utilice el siguiente token: eyJ..."
+```bash
+# Ver el token de recuperación generado
+docker-compose logs notificaciones-service | grep "SEGURIDAD"
 ```
 
 ### 5. Petición denegada sin token (401)
@@ -278,17 +295,7 @@ curl http://localhost:8000/empleados
 # Respuesta: 401 Unauthorized
 ```
 
-### 6. Extraer el token de recuperación de los logs
-
-```bash
-docker-compose logs auth-service | grep "usuario.creado"
-# O también:
-docker-compose logs notificaciones-service | grep "SEGURIDAD"
-```
-
-Copiar el token JWT que aparece en el mensaje de notificación.
-
-### 7. Establecer contraseña con el token de recuperación
+### 6. Establecer contraseña con el token de recuperación
 
 ```bash
 curl -X POST http://localhost:8000/auth/reset-password \
@@ -301,7 +308,7 @@ curl -X POST http://localhost:8000/auth/reset-password \
 
 Respuesta esperada: `HTTP 200` — la cuenta queda activada.
 
-### 8. Login como usuario normal (rol USER)
+### 7. Login como usuario normal (rol USER)
 
 ```bash
 TOKEN_USER=$(curl -s -X POST http://localhost:8000/auth/login \
@@ -309,6 +316,20 @@ TOKEN_USER=$(curl -s -X POST http://localhost:8000/auth/login \
   -d '{"nombre_usuario": "juan@empresa.com", "contrasena": "MiContrasena123"}' \
   | grep -o '"access_token":"[^"]*"' | cut -d'"' -f4)
 ```
+
+### 8. Cambiar contraseña (usuario autenticado)
+
+```bash
+curl -X POST http://localhost:8000/auth/change-password \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $TOKEN_USER" \
+  -d '{
+    "contrasena_actual": "MiContrasena123",
+    "nueva_contrasena": "NuevaContrasena456"
+  }'
+```
+
+Respuesta esperada: `HTTP 200`
 
 ### 9. Lectura exitosa con rol USER (200)
 
@@ -336,31 +357,100 @@ curl -X POST http://localhost:8000/auth/recover-password \
 # Revisar logs de notificaciones para obtener el nuevo token
 docker-compose logs notificaciones-service | grep "SEGURIDAD"
 
-# Repetir paso 7 con el nuevo token para cambiar la contraseña
+# Repetir paso 6 con el nuevo token para cambiar la contraseña
 ```
 
-### 12. Offboarding — eliminar empleado (requiere ADMIN)
+### 12. Gestión de vacaciones
+
+#### Programar vacaciones (requiere ADMIN)
 
 ```bash
-curl -X DELETE http://localhost:8000/empleados/1 \
+curl -X POST http://localhost:8000/vacaciones \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $TOKEN" \
+  -d '{
+    "id": 1,
+    "empleado_id": 1,
+    "fecha_inicio": "2025-07-01",
+    "fecha_fin": "2025-07-15",
+    "motivo": "Vacaciones de verano"
+  }'
+```
+
+Respuesta esperada: `HTTP 201`
+
+Al programar vacaciones:
+
+- `vacaciones-service` publica `vacaciones.programadas`
+- `auth-service` consume el evento y desactiva la cuenta del empleado
+- `auth-service` publica `cuenta.desactivada`
+- `notificaciones-service` notifica al empleado
+
+```bash
+# Verificar que la cuenta está desactivada (login debe retornar 401)
+curl -X POST http://localhost:8000/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"nombre_usuario": "juan@empresa.com", "contrasena": "MiContrasena123"}'
+# Respuesta: 401 — "Usuario inhabilitado"
+```
+
+#### Consultar vacaciones por empleado
+
+```bash
+curl "http://localhost:8000/vacaciones?empleado_id=1" \
   -H "Authorization: Bearer $TOKEN"
-# Respuesta: 204 No Content
+# Respuesta: 200 OK con lista paginada de vacaciones
 ```
 
-Al eliminar el empleado ocurre la siguiente cadena:
-
-- `empleados-service` publica `empleado.eliminado`
-- `auth-service` consume el evento e inhabilita el usuario
-- `perfiles-service` consume el evento y marca el perfil como inactivo
-- `notificaciones-service` registra una notificación de tipo `DESVINCULACION`
-
-### 13. Verificar que el usuario inhabilitado no puede hacer login (401)
+#### Finalizar vacaciones (reactiva la cuenta)
 
 ```bash
+curl -X PUT http://localhost:8000/vacaciones/1 \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $TOKEN" \
+  -d '{"estado": "FINALIZADA"}'
+```
+
+Respuesta esperada: `HTTP 200`
+
+Al finalizar:
+
+- `vacaciones-service` publica `vacaciones.finalizadas`
+- `auth-service` reactiva la cuenta del empleado
+- `auth-service` publica `cuenta.activada`
+- `notificaciones-service` notifica al empleado
+
+### 13. Offboarding — Retirar empleado (requiere ADMIN)
+
+```bash
+# Opción A: Retiro definitivo (cambia estado a RETIRADO, desactiva cuenta permanentemente)
+curl -X PUT http://localhost:8000/empleados/1/retirar \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+Respuesta esperada: `HTTP 200`
+
+Al retirar el empleado:
+
+- `empleados-service` cambia el estado a `RETIRADO` y guarda `fecha_retiro`
+- `empleados-service` publica `empleado.eliminado`
+- `auth-service` inhabilita la cuenta de forma permanente
+- `perfiles-service` marca el perfil como inactivo
+- `notificaciones-service` registra notificación de tipo `DESVINCULACION`
+
+```bash
+# Verificar que el usuario inhabilitado no puede hacer login
 curl -X POST http://localhost:8000/auth/login \
   -H "Content-Type: application/json" \
   -d '{"nombre_usuario": "juan@empresa.com", "contrasena": "MiContrasena123"}'
 # Respuesta: 401 Unauthorized — Usuario inhabilitado
+```
+
+```bash
+# Opción B: Eliminación física (soft delete, mantiene datos para auditoría)
+curl -X DELETE http://localhost:8000/empleados/1 \
+  -H "Authorization: Bearer $TOKEN"
+# Respuesta: 204 No Content
 ```
 
 ---
@@ -376,6 +466,7 @@ Enruta todas las peticiones. El prefijo de la ruta determina el servicio destino
 | `/auth/*` | auth-service | No |
 | `/empleados/*` | empleados-service | Si |
 | `/departamentos/*` | departamentos-service | Si |
+| `/vacaciones/*` | vacaciones-service | Si |
 | `/notificaciones/*` | notificaciones-service | Si |
 | `/perfiles/*` | perfiles-service | Si |
 | `/reportes/*` | reportes-service | Si |
@@ -386,7 +477,8 @@ Enruta todas las peticiones. El prefijo de la ruta determina el servicio destino
 | --- | --- | --- | --- |
 | POST | `/auth/login` | Verificar credenciales y obtener JWT | No |
 | POST | `/auth/recover-password` | Solicitar recuperación de contraseña | No |
-| POST | `/auth/reset-password` | Establecer nueva contraseña con token | No |
+| POST | `/auth/reset-password` | Establecer nueva contraseña con token de recuperación | No |
+| POST | `/auth/change-password` | Cambiar contraseña (usuario autenticado) | Bearer JWT |
 | GET | `/health` | Estado del servicio | No |
 
 ### Empleados Service (:8080)
@@ -396,10 +488,14 @@ Enruta todas las peticiones. El prefijo de la ruta determina el servicio destino
 | GET | `/empleados` | Listar empleados (paginado, con filtros) | USER |
 | GET | `/empleados/{id}` | Consultar empleado por ID | USER |
 | POST | `/empleados` | Registrar nuevo empleado | ADMIN |
-| PUT | `/empleados/{id}` | Actualizar empleado | ADMIN |
+| PUT | `/empleados/{id}` | Actualizar empleado (publica `empleado.actualizado`) | ADMIN |
+| PUT | `/empleados/{id}/retirar` | Retirar empleado (cambia estado a RETIRADO) | ADMIN |
 | DELETE | `/empleados/{id}` | Eliminar empleado (soft delete) | ADMIN |
+| GET | `/health` | Estado del servicio | No |
 
 Filtros disponibles: `?nombre=&cargo=&departamento_id=&email=&pagina=1&por_pagina=10`
+
+Estados del empleado: `ACTIVO`, `EN_VACACIONES`, `RETIRADO`
 
 ### Departamentos Service (:8081)
 
@@ -411,7 +507,25 @@ Filtros disponibles: `?nombre=&cargo=&departamento_id=&email=&pagina=1&por_pagin
 | PUT | `/departamentos/{id}` | Actualizar departamento | ADMIN |
 | DELETE | `/departamentos/{id}` | Eliminar departamento | ADMIN |
 
-### Notificaciones Service (:8082)
+### Vacaciones Service (:8086)
+
+| Método | Ruta | Descripción | Rol mínimo |
+| --- | --- | --- | --- |
+| GET | `/vacaciones` | Listar vacaciones (con filtro por `empleado_id`) | USER |
+| GET | `/vacaciones/{id}` | Consultar vacación por ID | USER |
+| POST | `/vacaciones` | Programar vacaciones (publica `vacaciones.programadas`) | ADMIN |
+| PUT | `/vacaciones/{id}` | Actualizar / finalizar vacaciones | ADMIN |
+| DELETE | `/vacaciones/{id}` | Cancelar vacaciones | ADMIN |
+| GET | `/health` | Estado del servicio | No |
+
+Estados de vacación: `PROGRAMADA`, `ACTIVA`, `FINALIZADA`, `CANCELADA`
+
+Validaciones:
+
+- No se permiten solapamientos de períodos para el mismo empleado
+- `fecha_fin` debe ser mayor o igual a `fecha_inicio`
+
+### Notificaciones Service (:3002)
 
 | Método | Ruta | Descripción | Rol mínimo |
 | --- | --- | --- | --- |
@@ -422,8 +536,9 @@ Filtros disponibles: `?nombre=&cargo=&departamento_id=&email=&pagina=1&por_pagin
 Tipos de notificación registrados:
 
 - `BIENVENIDA` — al crear empleado
-- `DESVINCULACION` — al eliminar empleado
+- `DESVINCULACION` — al retirar o eliminar empleado
 - `SEGURIDAD` — al crear usuario o solicitar recuperación de contraseña
+- `VACACIONES` — al programar o finalizar vacaciones
 
 ### Reportes Service (:8083)
 
@@ -432,7 +547,7 @@ Tipos de notificación registrados:
 | GET | `/reportes/resumen` | Resumen de empleados y departamentos | USER |
 | GET | `/health` | Estado del servicio y sus dependencias | No |
 
-### Perfiles Service (:8084)
+### Perfiles Service (:3001)
 
 | Método | Ruta | Descripción | Rol mínimo |
 | --- | --- | --- | --- |
@@ -447,64 +562,134 @@ Tipos de notificación registrados:
 ```text
 microservicios/
 ├── docker-compose.yml              # Orquestación de todos los servicios
+├── .env                            # Variables de entorno (no subir al repo)
 ├── .env.example                    # Template de variables de entorno
-├── .gitignore                      # Excluye .env y archivos sensibles
-├── README.md                       # Este archivo
+├── .gitignore
+├── README.md
+├── CLAUDE.md                       # Instrucciones para Claude Code
+├── PRD.md                          # Análisis de brechas y plan de implementación
 │
 ├── api-gateway/                    # Python/FastAPI — Proxy con JWT y RBAC
-│   ├── main.py                     # Lógica de proxy, validación JWT, RBAC
-│   ├── requirements.txt
-│   └── Dockerfile
-│
-├── auth-service/                   # Python/FastAPI — Identidad y autenticación
-│   ├── main.py                     # App principal, seed de admin, ciclo de vida
-│   ├── requirements.txt
-│   ├── Dockerfile
-│   └── app/
-│       ├── database.py             # Modelo Usuario (SQLAlchemy)
-│       ├── jwt_utils.py            # Crear/decodificar tokens JWT
-│       ├── broker.py               # Consume empleado.*, publica usuario.*
-│       └── routes/
-│           └── auth.py             # /auth/login, /recover-password, /reset-password
-│
-├── empleados-service/              # Python/FastAPI — CRUD de empleados
 │   ├── main.py
 │   ├── requirements.txt
 │   ├── Dockerfile
+│   ├── Jenkinsfile
+│   └── tests/
+│       └── test_gateway.py
+│
+├── auth-service/                   # Python/FastAPI — Identidad y autenticación
+│   ├── main.py
+│   ├── requirements.txt
+│   ├── Dockerfile
+│   ├── Jenkinsfile
+│   ├── tests/
+│   │   └── test_auth.py
 │   └── app/
-│       ├── database.py
-│       ├── broker.py               # Publica empleado.creado / empleado.eliminado
-│       ├── models/empleado.py
-│       ├── routes/empleados.py
+│       ├── database.py             # Modelo Usuario con empleado_id (SQLAlchemy)
+│       ├── jwt_utils.py            # Crear/decodificar tokens JWT
+│       ├── broker.py               # Consume empleado.*, vacaciones.*; publica cuenta.*
+│       └── routes/
+│           └── auth.py             # /login, /recover-password, /reset-password, /change-password
+│
+├── empleados-service/              # Python/FastAPI — CRUD y ciclo de vida de empleados
+│   ├── main.py
+│   ├── requirements.txt
+│   ├── Dockerfile
+│   ├── Jenkinsfile
+│   ├── tests/
+│   │   └── test_empleados.py
+│   └── app/
+│       ├── database.py             # EstadoEmpleadoDB, campo fecha_retiro
+│       ├── broker.py               # Publica empleado.creado/actualizado/eliminado
+│       ├── models/empleado.py      # EstadoEmpleado enum: ACTIVO/EN_VACACIONES/RETIRADO
+│       ├── routes/empleados.py     # Incluye PUT /empleados/{id}/retirar
 │       └── clients/
 │           └── departamentos_client.py  # Circuit breaker + retry + cache
 │
 ├── departamentos-service/          # Java 17 / Spring Boot 3 — CRUD de departamentos
 │   ├── pom.xml
 │   ├── Dockerfile
-│   └── src/main/java/com/empresa/departamentos/
-│       ├── controller/
-│       ├── service/
-│       ├── model/
-│       ├── repository/
-│       ├── dto/
-│       └── exception/
+│   ├── Jenkinsfile
+│   └── src/
 │
 ├── notificaciones-service/         # Node.js / Express — Consumidor de eventos
-│   ├── src/index.js                # Consume empleado.*, usuario.*
+│   ├── src/index.js                # Consume empleado.*, usuario.*, cuenta.*, vacaciones.*
 │   ├── package.json
-│   └── Dockerfile
+│   ├── Dockerfile
+│   └── tests/
 │
 ├── reportes-service/               # Go / net-http — Agregador de datos
 │   ├── main.go
 │   ├── go.mod
-│   └── Dockerfile
+│   ├── Dockerfile
+│   └── Jenkinsfile
 │
-└── perfiles-service/               # Node.js / Express — Gestión de perfiles
-    ├── src/index.js
-    ├── package.json
-    └── Dockerfile
+├── perfiles-service/               # Node.js / Express — Gestión de perfiles
+│   ├── src/index.js
+│   ├── package.json
+│   ├── Dockerfile
+│   ├── Jenkinsfile
+│   └── tests/
+│
+├── vacaciones-service/             # Python/FastAPI — Gestión de vacaciones
+│   ├── main.py
+│   ├── requirements.txt
+│   ├── Dockerfile
+│   ├── Jenkinsfile
+│   ├── tests/
+│   │   └── test_vacaciones.py
+│   └── app/
+│       ├── database.py
+│       ├── broker.py               # Publica vacaciones.programadas/finalizadas
+│       ├── models/vacacion.py
+│       └── routes/vacaciones.py
+│
+├── e2e-tests/                      # Cucumber BDD — Pruebas de integración extremo a extremo
+│   ├── pom.xml
+│   └── src/test/
+│       ├── java/com/empresa/e2e/
+│       │   ├── step_definitions/
+│       │   │   ├── AuthSteps.java
+│       │   │   ├── EmpleadosSteps.java
+│       │   │   ├── VacacionesSteps.java
+│       │   │   └── OffboardingSteps.java
+│       │   ├── support/
+│       │   │   ├── ConfiguracionBase.java
+│       │   │   ├── TestContext.java
+│       │   │   └── WaitUtils.java
+│       │   └── runner/
+│       │       └── CucumberRunner.java
+│       └── resources/features/
+│           ├── auth.feature
+│           ├── empleados.feature
+│           ├── vacaciones.feature
+│           └── offboarding.feature
+│
+└── observability/                  # Prometheus + Grafana + Loki + Zipkin
+    ├── prometheus/prometheus.yml
+    ├── grafana/provisioning/
+    │   ├── dashboards/
+    │   └── alerting/
+    ├── loki/
+    ├── promtail/
+    └── blackbox/
 ```
+
+---
+
+## Eventos RabbitMQ
+
+Exchange: `rrhh_events`, tipo `topic`
+
+| Routing Key | Publicado por | Consumido por |
+| --- | --- | --- |
+| `empleado.creado` | empleados-service | auth-service, notificaciones-service, perfiles-service |
+| `empleado.actualizado` | empleados-service | perfiles-service |
+| `empleado.eliminado` | empleados-service | auth-service, perfiles-service, notificaciones-service |
+| `vacaciones.programadas` | vacaciones-service | auth-service, notificaciones-service |
+| `vacaciones.finalizadas` | vacaciones-service | auth-service, notificaciones-service |
+| `cuenta.activada` | auth-service | notificaciones-service |
+| `cuenta.desactivada` | auth-service | notificaciones-service |
 
 ---
 
@@ -521,15 +706,146 @@ Variables más importantes:
 | Variable | Descripción | Valor por defecto |
 | --- | --- | --- |
 | `JWT_SECRET` | Clave secreta para firmar/verificar tokens JWT | `changeme-super-secret-key-for-dev` |
-| `ADMIN_USERNAME` | Usuario administrador semilla | `admin` |
+| `ADMIN_USERNAME` | Usuario administrador semilla (auth-service) | `admin` |
 | `ADMIN_PASSWORD` | Contraseña del administrador semilla | `admin123` |
 | `ADMIN_EMAIL` | Email del administrador semilla | `admin@empresa.com` |
+| `ADMIN_USER` | Nombre de usuario para pruebas e2e | `admin` |
+| `USER_USER` | Usuario regular para pruebas e2e | `usuario` |
+| `USER_PASSWORD` | Contraseña del usuario regular para pruebas e2e | `usuario123` |
 | `ACCESS_TOKEN_EXPIRE_MINUTES` | Duración del token de acceso | `60` |
 | `RESET_TOKEN_EXPIRE_MINUTES` | Duración del token de recuperación | `60` |
+| `RABBITMQ_URL` | URL de conexión al broker | `amqp://guest:guest@rabbitmq:5672/` |
 | `GATEWAY_PORT` | Puerto externo del API Gateway | `8000` |
 | `AUTH_SERVICE_PORT` | Puerto externo del auth-service | `8085` |
+| `VACACIONES_SERVICE_PORT` | Puerto externo del vacaciones-service | `8086` |
 
 > En producción cambiar `JWT_SECRET` por una cadena aleatoria de al menos 32 caracteres.
+
+---
+
+## Observabilidad
+
+| Herramienta | URL | Usuario | Contraseña |
+| --- | --- | --- | --- |
+| **Prometheus** | <http://localhost:9090> | — | — |
+| **Grafana** | <http://localhost:3001> | `admin` | `admin` |
+| **Loki** | <http://localhost:3100> | — | — |
+| **Zipkin** | <http://localhost:9411> | — | — |
+
+Todos los servicios exponen `/metrics` para Prometheus y envían logs en formato JSON estructurado (compatibles con Loki). La trazabilidad distribuida está implementada con OpenTelemetry + Zipkin en el API Gateway.
+
+---
+
+## Pruebas automatizadas
+
+### Pruebas unitarias (por servicio)
+
+```bash
+# empleados-service
+docker-compose run --rm empleados-service pytest tests/ -v
+
+# auth-service
+docker-compose run --rm auth-service pytest tests/ -v
+
+# api-gateway
+docker-compose run --rm api-gateway pytest tests/ -v
+
+# vacaciones-service
+docker-compose run --rm vacaciones-service pytest tests/ -v
+
+# notificaciones-service
+docker-compose run --rm notificaciones-service npm test
+
+# perfiles-service
+docker-compose run --rm perfiles-service npm test
+```
+
+### Pruebas e2e (Cucumber BDD)
+
+Las pruebas e2e se ejecutan contra el sistema completo levantado:
+
+```bash
+# Levantar el sistema primero
+docker-compose up -d
+
+# Ejecutar pruebas e2e
+docker-compose run --rm e2e-tests
+
+# O directamente con Maven
+cd e2e-tests
+mvn test -DBASE_URL=http://localhost:8000 \
+         -DADMIN_USER=admin \
+         -DADMIN_PASSWORD=admin123 \
+         -DUSER_USER=usuario \
+         -DUSER_PASSWORD=usuario123
+```
+
+Escenarios cubiertos:
+
+| Feature | Escenarios |
+| --- | --- |
+| `auth.feature` | Login exitoso, credenciales incorrectas, RBAC |
+| `empleados.feature` | Onboarding completo, CRUD, validaciones |
+| `vacaciones.feature` | Programar, consultar, solapamiento, cuenta desactivada/reactivada |
+| `offboarding.feature` | Retiro definitivo, cuenta permanentemente desactivada |
+
+---
+
+## CI/CD con Jenkins
+
+### URLs de acceso y credenciales
+
+| Servicio | URL | Usuario | Contraseña |
+| --- | --- | --- | --- |
+| **Jenkins** | <http://localhost:8090> | `admin` | `admin123` |
+| **SonarQube** | <http://localhost:9000> | `admin` | `admin123` |
+| **Docker Registry** | <http://localhost:5000> | — | — |
+| **RabbitMQ Admin** | <http://localhost:15672> | `guest` | `guest` |
+
+### Pipelines disponibles
+
+| Pipeline | Servicio | Lenguaje | Jenkinsfile |
+| --- | --- | --- | --- |
+| `api-gateway-pipeline` | api-gateway | Python / FastAPI | `api-gateway/Jenkinsfile` |
+| `auth-service-pipeline` | auth-service | Python / FastAPI | `auth-service/Jenkinsfile` |
+| `empleados-service-pipeline` | empleados-service | Python / FastAPI | `empleados-service/Jenkinsfile` |
+| `vacaciones-service-pipeline` | vacaciones-service | Python / FastAPI | `vacaciones-service/Jenkinsfile` |
+| `notificaciones-service-pipeline` | notificaciones-service | Node.js / Express | `notificaciones-service/Jenkinsfile` |
+| `perfiles-service-pipeline` | perfiles-service | Node.js / Express | `perfiles-service/Jenkinsfile` |
+| `departamentos-service-pipeline` | departamentos-service | Java 17 / Spring Boot | `departamentos-service/Jenkinsfile` |
+| `reportes-service-pipeline` | reportes-service | Go | `reportes-service/Jenkinsfile` |
+
+### Etapas del pipeline
+
+| # | Etapa | Descripción |
+| --- | --- | --- |
+| 1 | **Checkout** | Descarga el código del repositorio |
+| 2 | **Build** | Instala dependencias |
+| 3 | **Test** | Ejecuta pruebas unitarias con cobertura |
+| 4 | **Quality Gate** | Verifica cobertura ≥ 70% |
+| 5 | **Package** | Construye imagen Docker y la publica en el registry local |
+
+### Cómo levantar el sistema completo (con CI)
+
+```bash
+# 1. Levantar TODO el sistema en segundo plano
+docker-compose up -d
+
+# 2. Esperar ~2-3 minutos a que todos los servicios estén listos
+
+# 3. Verificar que Jenkins está accesible
+curl http://localhost:8090
+
+# 4. Verificar que SonarQube está accesible
+curl http://localhost:9000/api/system/status
+```
+
+### Configurar SonarQube
+
+```bash
+docker cp jenkins/setup-sonarqube.sh jenkins:/tmp/setup-sonarqube.sh
+docker exec jenkins bash -c "tr -d '\r' < /tmp/setup-sonarqube.sh > /tmp/setup-sonarqube_unix.sh && SONAR_URL=http://sonarqube:9000 bash /tmp/setup-sonarqube_unix.sh"
+```
 
 ---
 
@@ -552,7 +868,7 @@ docker-compose down
 docker-compose down -v
 
 # Reconstruir un solo servicio
-docker-compose up --build auth-service
+docker-compose up --build vacaciones-service
 
 # Reiniciar un servicio
 docker-compose restart api-gateway
@@ -561,10 +877,10 @@ docker-compose restart api-gateway
 docker-compose logs -f
 
 # Logs de un servicio específico
-docker-compose logs -f auth-service
+docker-compose logs -f vacaciones-service
 
-# Ver solo las notificaciones de seguridad
-docker-compose logs notificaciones-service | grep "SEGURIDAD"
+# Ver solo las notificaciones de vacaciones
+docker-compose logs notificaciones-service | grep "vacaciones"
 
 # Acceder a la base de datos de auth
 docker-compose exec db-auth psql -U postgres -d authdb
@@ -585,7 +901,8 @@ docker stats
 | Soft Delete | empleados-service | Empleados marcados como inactivos, no eliminados físicamente |
 | Health Checks | Todos | Endpoint `/health` con estado de dependencias |
 | Graceful Degradation | reportes-service | Reporta estado `degraded` si empleados o departamentos fallan |
-| Reintentos RabbitMQ | auth-service, empleados-service | Hasta 10 reintentos al conectar al broker |
+| Reintentos RabbitMQ | auth-service, empleados-service, vacaciones-service | Hasta 10 reintentos al conectar al broker |
+| Polling async e2e | e2e-tests | WaitUtils con 30 reintentos × 2s para eventos asíncronos |
 
 ---
 
@@ -595,210 +912,16 @@ docker stats
 | --- | --- |
 | **Lenguajes** | Python 3.11, Java 17, Node.js 18, Go 1.21 |
 | **Frameworks** | FastAPI, Spring Boot 3, Express.js, net/http |
-| **Base de datos** | PostgreSQL 15 (5 instancias independientes) |
+| **Base de datos** | PostgreSQL 15 (6 instancias independientes) |
 | **Message Broker** | RabbitMQ 3.13 con management UI |
 | **Seguridad** | JWT (HMAC SHA-256), BCrypt, RBAC |
 | **ORM** | SQLAlchemy (Python), Spring Data JPA / Hibernate (Java) |
 | **Logging** | python-json-logger, logstash-logback-encoder, winston, uber/zap |
+| **Observabilidad** | Prometheus, Grafana, Loki, Promtail, Zipkin, OpenTelemetry |
+| **Pruebas** | pytest, JUnit 5, Jest, Cucumber BDD, RestAssured |
+| **CI/CD** | Jenkins (JCasC), SonarQube, Docker Registry local |
 | **Contenedores** | Docker, Docker Compose v2 (multi-stage builds) |
 | **Documentación** | OpenAPI / Swagger UI (todos los servicios) |
-
----
-
-## Reto 6 — Integración Continua (CI) con Jenkins
-
-### ¿Qué es la Integración Continua?
-
-La **Integración Continua (CI)** es una práctica de desarrollo que automatiza la compilación, pruebas y empaquetado del código en cada cambio. Garantiza que los problemas se detecten en minutos, no en días, al verificar cada commit en un entorno limpio y reproducible.
-
-En este proyecto de microservicios, CI es especialmente valioso porque:
-
-- **Múltiples servicios y lenguajes**: Cada servicio (Java, Node.js, Python, Go) se compila y prueba de forma independiente
-- **Detección temprana de rupturas**: Un cambio en un evento o endpoint que rompa otro servicio se detecta automáticamente
-- **Empaquetado consistente**: Las imágenes Docker se construyen de forma automatizada y reproducible
-
-### Arquitectura CI
-
-```text
-🐳 Docker Compose
-┌──────────────────────────────────────────────────────────────────┐
-│                                                                  │
-│  ⚙️ Jenkins :9090          🔍 SonarQube :9000                    │
-│  ┌─────────────────┐      ┌─────────────────┐                   │
-│  │ Pipelines CI    │──────│ Quality Gates   │                   │
-│  │ JCasC Config    │      │ Cobertura ≥70%  │                   │
-│  │ Docker Socket   │      │ Análisis código │                   │
-│  └────────┬────────┘      └────────┬────────┘                   │
-│           │                        │                             │
-│           ▼                        ▼                             │
-│  🗄️ Docker Registry :5000    🗄️ PostgreSQL (sonardb)              │
-│  ┌─────────────────┐      ┌─────────────────┐                   │
-│  │ Imágenes Docker │      │ Datos análisis  │                   │
-│  │ localhost:5000   │      │ db-sonar        │                   │
-│  └─────────────────┘      └─────────────────┘                   │
-│                                                                  │
-│  Microservicios (empleados, departamentos, notificaciones, ...) │
-└──────────────────────────────────────────────────────────────────┘
-```
-
-### URLs de acceso y credenciales
-
-| Servicio | URL | Usuario | Contraseña |
-| --- | --- | --- | --- |
-| **Jenkins** | <http://localhost:9090> | `admin` | `admin123` |
-| **SonarQube** | <http://localhost:9000> | `admin` | `admin123` |
-| **Docker Registry** | <http://localhost:5000> | — | — |
-| **RabbitMQ** | <http://localhost:15672> | `guest` | `guest` |
-
-### Cómo levantar el sistema completo (con CI)
-
-```bash
-# 1. Levantar TODO el sistema en segundo plano (incluye Jenkins + SonarQube + Registry)
-docker-compose up -d
-
-# 2. Esperar ~2-3 minutos a que todos los servicios estén listos
-
-# 3. Verificar que Jenkins está accesible
-curl http://localhost:9090
-
-# 4. Verificar que SonarQube está accesible
-curl http://localhost:9000/api/system/status
-```
-
-> **Nota**: Jenkins se configura automáticamente gracias a JCasC (Jenkins Configuration as Code). Los pipelines para `notificaciones-service` y `departamentos-service` se crean solos al iniciar.
-
-### Configurar SonarQube (Quality Gate ≥ 70%)
-
-Después de que el sistema esté levantado, debemos configurar SonarQube. Para evitar problemas de compatibilidad en Windows, ejecutaremos el script directamente dentro del contenedor de Jenkins:
-
-```bash
-# Copiar el script al contenedor (opcional si ya está mapeado, pero recomendado)
-docker cp jenkins/setup-sonarqube.sh jenkins:/tmp/setup-sonarqube.sh
-
-# Quitar posibles saltos de línea de Windows y ejecutar el script apuntando al servidor interno
-docker exec jenkins bash -c "tr -d '\r' < /tmp/setup-sonarqube.sh > /tmp/setup-sonarqube_unix.sh && SONAR_URL=http://sonarqube:9000 bash /tmp/setup-sonarqube_unix.sh"
-```
-
-Este script automáticamente:
-1. Cambia la contraseña por defecto de SonarQube
-2. Crea un Quality Gate llamado `CI-Pipeline-Gate` con cobertura ≥ 70%
-3. Configura el webhook de SonarQube → Jenkins
-4. Crea los proyectos en SonarQube
-
-#### Configuración manual del Webhook (alternativa)
-
-Si el script no funciona, configurar manualmente en SonarQube:
-
-1. Ir a <http://localhost:9000> → **Administration** → **Configuration** → **Webhooks**
-2. Crear un webhook con:
-   - **Name**: `Jenkins`
-   - **URL**: `http://jenkins:8080/sonarqube-webhook/`
-3. Guardar
-
-### Pipelines disponibles
-
-| Pipeline | Servicio | Lenguaje | Jenkinsfile |
-| --- | --- | --- | --- |
-| `notificaciones-service-pipeline` | notificaciones-service | Node.js / Express | `notificaciones-service/Jenkinsfile` |
-| `departamentos-service-pipeline` | departamentos-service | Java 17 / Spring Boot | `departamentos-service/Jenkinsfile` |
-
-### Etapas del pipeline
-
-Cada pipeline ejecuta las siguientes etapas secuenciales:
-
-| # | Etapa | Descripción | Si falla... |
-| --- | --- | --- | --- |
-| 1 | **Checkout** | Descarga el código del repositorio Git | Error de conexión al repo |
-| 2 | **Build** | Instala dependencias (`npm ci` / `mvn compile`) | Dependencias rotas o código no compila |
-| 3 | **Test** | Ejecuta pruebas unitarias con cobertura (Jest/JaCoCo) | Una prueba unitaria falla → pipeline se detiene |
-| 4 | **SonarQube** | Envía análisis estático al servidor SonarQube | Error de conexión a SonarQube |
-| 5 | **Quality Gate** | Verifica que la cobertura ≥ 70% | Cobertura insuficiente → pipeline se detiene |
-| 6 | **Package** | Construye imagen Docker y la publica en el registry local | Error en Dockerfile → pipeline se detiene |
-| 7 | **E2E Tests** | Levanta todo el sistema, ejecuta pruebas BDD (Cucumber) y limpia | Un escenario BDD falla → pipeline se detiene |
-
-### Cómo ejecutar un pipeline manualmente
-
-1. Ir a <http://localhost:9090>
-2. Iniciar sesión con `admin` / `admin123`
-3. Seleccionar el pipeline deseado (ej. `notificaciones-service-pipeline`)
-4. Hacer clic en **"Build Now"** (o "Construir ahora")
-5. Ver el progreso en **"Build History"** → clic en el número del build → **"Console Output"**
-
-### Interpretar los resultados
-
-- **Todas las etapas en verde** ✅ : El pipeline pasó correctamente. El código compila, las pruebas pasan, la cobertura es ≥ 70%, y la imagen Docker se construyó y publicó exitosamente.
-- **Etapa en rojo** ❌ : El pipeline falló en esa etapa específica. Revisar el **Console Output** del build para ver el mensaje de error detallado.
-- **Etapa en gris** ⚪ : La etapa no se ejecutó porque una etapa anterior falló.
-
-### 🧨 Simulando Fallos para Demostración
-
-Para demostrar que el pipeline realmente atrapa los errores y se detiene (fail-fast), debes introducir un error intencional, **hacer commit y push a GitHub** (ya que Jenkins descarga el código directamente desde el repositorio), y luego ejecutar el pipeline. 
-
-Aquí tienes un ejemplo exacto paso a paso para cada etapa:
-
-#### TEST 1. Demostrar fallo de Compilación (Etapa: Build)
-* **Objetivo:** Mostrar que si el código tiene errores de sintaxis, no avanza.
-* **Acción:** Rompe un archivo Java.
-* **Archivo a modificar:** `departamentos-service/src/main/java/com/empresa/departamentos/controller/DepartamentoController.java`
-* **Cambio exacto:** Ve a la línea 27 (dentro de `obtenerDepartamentos`) y quita el punto y coma `;` al final de `return departamentoService.obtenerTodos()`.
-* **Comandos:**
-  ```bash
-  git commit -am "Test error de compilacion" && git push origin felipe
-  ```
-* **Resultado en Jenkins:** Fallará en la etapa **Build** con el error `[ERROR] COMPILATION ERROR`.
-
-#### TEST 2. Demostrar fallo en Pruebas Unitarias (Etapa: Test)
-* **Objetivo:** Mostrar que si un test no pasa, la construcción se detiene antes de enviar a SonarQube.
-* **Acción:** Cambiar la expectativa de una prueba unitaria.
-* **Archivo a modificar:** `departamentos-service/src/test/java/com/empresa/departamentos/service/DepartamentoServiceImplTest.java`
-* **Cambio exacto:** En la línea 40, cambia `assertEquals("IT", resultado.getId());` por `assertEquals("RRHH", resultado.getId());`.
-* **Comandos:**
-  ```bash
-  git commit -am "Test error unitario" && git push origin felipe
-  ```
-* **Resultado en Jenkins:** Fallará en la etapa **Test** con el error `Expected: RRHH, Actual: IT`.
-
-#### TEST 3. Demostrar fallo de Calidad (Etapa: Quality Gate)
-* **Objetivo:** Mostrar que si la cobertura de código baja del 70%, el código es rechazado.
-* **Acción:** Comentar una prueba unitaria para reducir la cobertura de `departamentos-service` al ~35%.
-* **Archivo a modificar:** `departamentos-service/src/test/java/com/empresa/departamentos/service/DepartamentoServiceImplTest.java`
-* **Cambio exacto:** Comenta (usando `/* ... */`) todo el método `@Test void testCrearDepartamento_Exito() { ... }`.
-* **Comandos:**
-  ```bash
-  git commit -am "Test baja cobertura" && git push origin felipe
-  ```
-* **Resultado en Jenkins:** Llegará hasta la etapa **Quality Gate**, la cual fallará y detendrá el pipeline con un mensaje rojo: `Quality Gate FALLIDO: La cobertura no cumple el umbral mínimo del 70%`.
-
-#### TEST 4. Demostrar fallo de Integración E2E (Etapa: E2E Tests)
-* **Objetivo:** Mostrar que el sistema atrapa regresiones globales al probar toda la arquitectura.
-* **Acción:** Romper la lógica de un microservicio sin romper sus tests unitarios (para que llegue vivo a la etapa final).
-* **Archivo a modificar:** `departamentos-service/src/main/java/com/empresa/departamentos/service/DepartamentoServiceImpl.java`
-* **Cambio exacto:** En el método `crear` (Línea 29), comenta la línea `departamento.setPresupuesto(...)` para que siempre se guarde un presupuesto en nulo/cero.
-* **Comandos:**
-  ```bash
-  git commit -am "Test error e2e" && git push origin felipe
-  ```
-* **Resultado en Jenkins:** Pasará la compilación, pasará SonarQube, levantará todos los 13 contenedores efímeros, pero fallará la prueba final en BDD y destruirá el entorno (`Falló la etapa E2E: java.lang.AssertionError`).
-
-> **⚠️ IMPORTANTE:** Recuerda revertir el código (`ctrl + z` o corregir el fallo), hacer `git commit` y `git push` nuevamente para volver a dejar el pipeline en color verde antes de hacer el siguiente ejemplo.
-
-### Estructura de archivos CI (Reto 6)
-
-```text
-microservicios/
-├── docker-compose.yml                   # Actualizado con Jenkins, SonarQube, Registry
-├── jenkins/
-│   ├── Dockerfile                       # Jenkins personalizado con plugins y Docker
-│   ├── casc.yaml                        # JCasC — Configuración como Código
-│   └── setup-sonarqube.sh               # Script de configuración automática de SonarQube
-├── notificaciones-service/
-│   ├── Jenkinsfile                      # Pipeline CI (Node.js)
-│   └── sonar-project.properties         # Config SonarQube
-└── departamentos-service/
-    ├── Jenkinsfile                      # Pipeline CI (Java/Spring Boot)
-    ├── sonar-project.properties         # Config SonarQube
-    └── pom.xml                          # Actualizado con JaCoCo + sonar-maven-plugin
-```
 
 ---
 
