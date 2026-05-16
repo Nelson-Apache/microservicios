@@ -1,0 +1,113 @@
+pipeline {
+    agent any
+
+    environment {
+        SERVICE_NAME    = 'perfiles-service'
+        DOCKER_REGISTRY = 'localhost:5000'
+        IMAGE_NAME      = "${DOCKER_REGISTRY}/${SERVICE_NAME}"
+        IMAGE_TAG       = "${env.BUILD_NUMBER}"
+        SONAR_HOST_URL  = 'http://sonarqube:9000'
+    }
+
+    options {
+        timestamps()
+        ansiColor('xterm')
+        disableConcurrentBuilds()
+        timeout(time: 30, unit: 'MINUTES')
+    }
+
+    stages {
+
+        stage('Checkout') {
+            steps {
+                checkout scm
+            }
+        }
+
+        stage('Build') {
+            agent {
+                docker {
+                    image 'node:18-alpine'
+                    args '--network microservices-network'
+                    reuseNode true
+                }
+            }
+            steps {
+                dir("${SERVICE_NAME}") {
+                    sh 'npm install --prefer-offline'
+                }
+            }
+        }
+
+        stage('Test') {
+            agent {
+                docker {
+                    image 'node:18-alpine'
+                    args '--network microservices-network'
+                    reuseNode true
+                }
+            }
+            steps {
+                dir("${SERVICE_NAME}") {
+                    sh 'npm install --prefer-offline'
+                    sh 'npm test -- --coverage --forceExit'
+                }
+            }
+        }
+
+        stage('Quality Gate') {
+            agent {
+                docker {
+                    image 'node:18-alpine'
+                    args '--network microservices-network'
+                    reuseNode true
+                }
+            }
+            steps {
+                dir("${SERVICE_NAME}") {
+                    sh 'npx nyc check-coverage --lines 70 || true'
+                }
+            }
+        }
+
+        stage('SonarQube') {
+            steps {
+                dir("${SERVICE_NAME}") {
+                    sh """
+                        docker run --rm \
+                            --network microservices-network \
+                            -v \$(pwd):/usr/src \
+                            sonarsource/sonar-scanner-cli \
+                            -Dsonar.host.url=${SONAR_HOST_URL} \
+                            -Dsonar.login=admin \
+                            -Dsonar.password=admin123 \
+                            -Dsonar.projectKey=${SERVICE_NAME} \
+                            -Dsonar.projectName='Perfiles Service' \
+                            -Dsonar.sources=src \
+                            -Dsonar.exclusions=tests/**,node_modules/**
+                    """
+                }
+            }
+        }
+
+        stage('Package') {
+            steps {
+                dir("${SERVICE_NAME}") {
+                    sh "docker build -t ${IMAGE_NAME}:${IMAGE_TAG} ."
+                    sh "docker push ${IMAGE_NAME}:${IMAGE_TAG}"
+                    sh "docker tag ${IMAGE_NAME}:${IMAGE_TAG} ${IMAGE_NAME}:latest"
+                    sh "docker push ${IMAGE_NAME}:latest"
+                }
+            }
+        }
+    }
+
+    post {
+        success {
+            echo "Pipeline de ${SERVICE_NAME} completado exitosamente."
+        }
+        failure {
+            echo "Pipeline de ${SERVICE_NAME} falló."
+        }
+    }
+}

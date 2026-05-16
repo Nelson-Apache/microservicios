@@ -275,6 +275,23 @@ async def actualizar_empleado(id: int, empleado: EmpleadoUpdate):
             email=empleado.email,
             salario=empleado.salario,
         )
+
+        try:
+            await rabbitmq_client.publish_event(
+                routing_key="empleado.actualizado",
+                event_data={
+                    "id": id,
+                    "nombre": empleado_dict.get("nombre"),
+                    "email": empleado_dict.get("email"),
+                    "departamento_id": empleado_dict.get("departamento_id"),
+                }
+            )
+        except Exception as e:
+            logger.error(
+                "Error publicando evento empleado.actualizado",
+                extra={"event": "broker_publish_error", "error": str(e), "empleado_id": id}
+            )
+
         return Empleado(**empleado_dict)
     except EmpleadoNoEncontradoError as e:
         raise HTTPException(
@@ -338,6 +355,57 @@ async def eliminar_empleado(id: int):
             "Error al publicar evento empleado.eliminado al broker",
             extra={"event": "broker_publish_error", "error": str(e), "empleado_id": id}
         )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# PUT /empleados/{id}/retirar  — Offboarding del empleado
+# ─────────────────────────────────────────────────────────────────────────────
+
+@router.put(
+    "/{id}/retirar",
+    response_model=Empleado,
+    status_code=status.HTTP_200_OK,
+    summary="Retirar un empleado (offboarding)",
+    responses={
+        404: {"description": "Empleado no encontrado o ya retirado"},
+    },
+)
+async def retirar_empleado(id: int):
+    """
+    Marca al empleado como RETIRADO.
+
+    - Cambia estado a `RETIRADO`.
+    - Registra `fecha_retiro` con timestamp de auditoría.
+    - Publica `empleado.eliminado` para que auth-service desactive las credenciales.
+    """
+    if id <= 0:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="El ID debe ser un número entero mayor que 0.",
+        )
+
+    try:
+        empleado_dict = db.retirar_empleado(id)
+    except EmpleadoNoEncontradoError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=e.message)
+
+    try:
+        await rabbitmq_client.publish_event(
+            routing_key="empleado.eliminado",
+            event_data={
+                "id": id,
+                "nombre": empleado_dict.get("nombre"),
+                "email": empleado_dict.get("email"),
+                "motivo": "offboarding",
+            }
+        )
+    except Exception as e:
+        logger.error(
+            "Error publicando evento empleado.eliminado en offboarding",
+            extra={"event": "broker_publish_error", "error": str(e), "empleado_id": id}
+        )
+
+    return Empleado(**empleado_dict)
 
 
 # ─────────────────────────────────────────────────────────────────────────────

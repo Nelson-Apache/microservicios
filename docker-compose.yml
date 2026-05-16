@@ -15,6 +15,7 @@ services:
       - NOTIFICACIONES_SERVICE_URL=${NOTIFICACIONES_SERVICE_URL:-http://notificaciones-service:3000}
       - PERFILES_SERVICE_URL=${PERFILES_SERVICE_URL:-http://perfiles-service:3000}
       - REPORTES_SERVICE_URL=${REPORTES_SERVICE_URL:-http://reportes-service:3000}
+      - VACACIONES_SERVICE_URL=${VACACIONES_SERVICE_URL:-http://vacaciones-service:8086}
       - OTEL_SERVICE_NAME=api-gateway
       - OTEL_EXPORTER_ZIPKIN_ENDPOINT=http://zipkin:9411/api/v2/spans
       - OTEL_PROPAGATORS=tracecontext,baggage
@@ -24,6 +25,8 @@ services:
       empleados-service:
         condition: service_healthy
       departamentos-service:
+        condition: service_healthy
+      vacaciones-service:
         condition: service_healthy
     networks:
       - microservices-net
@@ -414,9 +417,88 @@ services:
       timeout: 5s
       retries: 5
 
+  # ─────────────────────────────────────────────────────────
+  # Servicio de Vacaciones (Python/FastAPI)
+  # ─────────────────────────────────────────────────────────
+  vacaciones-service:
+    build: ./vacaciones-service
+    ports:
+      - "${VACACIONES_SERVICE_PORT:-8086}:8086"
+    environment:
+      - DATABASE_URL=postgresql://${VACACIONES_DB_USER:-postgres}:${VACACIONES_DB_PASSWORD:-postgres}@database-vacaciones:5432/${VACACIONES_DB_NAME:-vacacionesdb}
+      - RABBITMQ_URL=${RABBITMQ_URL:-amqp://${RABBITMQ_USER:-guest}:${RABBITMQ_PASSWORD:-guest}@rabbitmq:5672/}
+      - RABBITMQ_EXCHANGE=rrhh_events
+      - OTEL_SERVICE_NAME=vacaciones-service
+      - OTEL_EXPORTER_ZIPKIN_ENDPOINT=http://zipkin:9411/api/v2/spans
+      - OTEL_PROPAGATORS=tracecontext,baggage
+    depends_on:
+      database-vacaciones:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    networks:
+      - microservices-net
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+        reservations:
+          cpus: '0.1'
+          memory: 64M
+    healthcheck:
+      test: [ "CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8086/health')" ]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 90s
+
+  # ─────────────────────────────────────────────────────────
+  # Base de Datos — Vacaciones (PostgreSQL)
+  # ─────────────────────────────────────────────────────────
+  database-vacaciones:
+    image: postgres:15-alpine
+    environment:
+      - POSTGRES_USER=${VACACIONES_DB_USER:-postgres}
+      - POSTGRES_PASSWORD=${VACACIONES_DB_PASSWORD:-postgres}
+      - POSTGRES_DB=${VACACIONES_DB_NAME:-vacacionesdb}
+    volumes:
+      - vacaciones-data:/var/lib/postgresql/data
+    networks:
+      - microservices-net
+    restart: unless-stopped
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U ${VACACIONES_DB_USER:-postgres} -d ${VACACIONES_DB_NAME:-vacacionesdb}" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
   # ═══════════════════════════════════════════════════════════
   #  RETO 7 — OBSERVABILIDAD Y MONITOREO
   # ═══════════════════════════════════════════════════════════
+
+  # ─────────────────────────────────────
+  # Blackbox Exporter — Sondeo de /health
+  # probe_success=1 → sano | probe_success=0 → caído
+  # ─────────────────────────────────────
+  blackbox-exporter:
+    image: prom/blackbox-exporter:latest
+    ports:
+      - "9115:9115"
+    volumes:
+      - ./observability/blackbox/blackbox.yml:/etc/blackbox_exporter/config.yml
+    command:
+      - '--config.file=/etc/blackbox_exporter/config.yml'
+    networks:
+      - microservices-net
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '0.25'
+          memory: 64M
 
   # ─────────────────────────────────────
   # Prometheus — Recolector de métricas (Pull)
@@ -672,6 +754,7 @@ volumes:
   departamentos-data:
   notificaciones-data:
   perfiles-data:
+  vacaciones-data:
   auth-data:
   # Volúmenes Observabilidad (Reto 7)
   grafana-data:

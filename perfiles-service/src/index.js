@@ -116,9 +116,9 @@ async function initRabbitMQ() {
     // Cola dedicada exclusivamente a crear perfiles
     const q = await channel.assertQueue('perfiles_queue', { durable: true });
 
-    // Solo escuchamos la creación y eliminación de empleados para generar/borrar el perfil
     await channel.bindQueue(q.queue, exchange, 'empleado.creado');
     await channel.bindQueue(q.queue, exchange, 'empleado.eliminado');
+    await channel.bindQueue(q.queue, exchange, 'empleado.actualizado');
 
     logger.info('Conectado a RabbitMQ, esperando mensajes de empleados...');
 
@@ -168,6 +168,26 @@ async function initRabbitMQ() {
           }
         } catch (error) {
           logger.error('Error eliminando perfil desde evento', { error: error.message, empleadoId });
+        }
+      } else if (routingKey === 'empleado.actualizado') {
+        const eventData = JSON.parse(msg.content.toString());
+        const empleadoId = String(eventData.id);
+
+        try {
+          const existe = await pool.query('SELECT id FROM perfiles WHERE empleado_id = $1', [empleadoId]);
+          if (existe.rowCount > 0) {
+            await pool.query(`
+              UPDATE perfiles
+              SET nombre = COALESCE($1, nombre),
+                  email  = COALESCE($2, email)
+              WHERE empleado_id = $3
+            `, [eventData.nombre || null, eventData.email || null, empleadoId]);
+            logger.info(`Perfil sincronizado por empleado.actualizado para empleado ${empleadoId}`);
+          } else {
+            logger.info(`No existe perfil para sincronizar del empleado ${empleadoId}`);
+          }
+        } catch (error) {
+          logger.error('Error sincronizando perfil desde evento', { error: error.message, empleadoId });
         }
       }
 

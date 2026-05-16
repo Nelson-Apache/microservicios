@@ -11,14 +11,16 @@ groups:
     interval: 1m
     rules:
       - uid: servicio-caido
-        title: Servicio Caído
+        title: Servicio Caído (Health Check)
         condition: C
         data:
           - refId: A
             relativeTimeRange: { from: 300, to: 0 }
             datasourceUid: prometheus-ds
             model:
-              expr: up
+              # probe_success=0 → el /health del servicio no respondió 200
+              # Esto es más preciso que `up` porque verifica el estado real del servicio
+              expr: probe_success{job=~"health-.*"}
               instant: false
               refId: A
           - refId: B
@@ -42,8 +44,8 @@ groups:
         execErrState: Alerting
         for: 1m
         annotations:
-          summary: "Servicio caído: {{ $labels.job }}"
-          description: "El servicio {{ $labels.job }} lleva 1 minuto sin responder al scraping de Prometheus."
+          summary: "Servicio caído: {{ $labels.servicio }}"
+          description: "El /health de {{ $labels.servicio }} lleva 1 minuto sin responder HTTP 200. Instancia: {{ $labels.instance }}"
         labels:
           severity: critical
         isPaused: false

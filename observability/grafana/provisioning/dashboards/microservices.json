@@ -48,13 +48,14 @@
         }
       },
       "targets": [
-        { "datasource": { "uid": "prometheus-ds" }, "expr": "up{job=\"api-gateway\"}", "legendFormat": "api-gateway", "refId": "A" },
-        { "datasource": { "uid": "prometheus-ds" }, "expr": "up{job=\"auth-service\"}", "legendFormat": "auth-service", "refId": "B" },
-        { "datasource": { "uid": "prometheus-ds" }, "expr": "up{job=\"empleados-service\"}", "legendFormat": "empleados-service", "refId": "C" },
-        { "datasource": { "uid": "prometheus-ds" }, "expr": "up{job=\"departamentos-service\"}", "legendFormat": "departamentos-service", "refId": "D" },
-        { "datasource": { "uid": "prometheus-ds" }, "expr": "up{job=\"notificaciones-service\"}", "legendFormat": "notificaciones-service", "refId": "E" },
-        { "datasource": { "uid": "prometheus-ds" }, "expr": "up{job=\"perfiles-service\"}", "legendFormat": "perfiles-service", "refId": "F" },
-        { "datasource": { "uid": "prometheus-ds" }, "expr": "up{job=\"reportes-service\"}", "legendFormat": "reportes-service", "refId": "G" }
+        { "datasource": { "uid": "prometheus-ds" }, "expr": "probe_success{job=\"health-api-gateway\"}", "legendFormat": "api-gateway", "refId": "A" },
+        { "datasource": { "uid": "prometheus-ds" }, "expr": "probe_success{job=\"health-auth-service\"}", "legendFormat": "auth-service", "refId": "B" },
+        { "datasource": { "uid": "prometheus-ds" }, "expr": "probe_success{job=\"health-empleados-service\"}", "legendFormat": "empleados-service", "refId": "C" },
+        { "datasource": { "uid": "prometheus-ds" }, "expr": "probe_success{job=\"health-departamentos-service\"}", "legendFormat": "departamentos-service", "refId": "D" },
+        { "datasource": { "uid": "prometheus-ds" }, "expr": "probe_success{job=\"health-notificaciones-service\"}", "legendFormat": "notificaciones-service", "refId": "E" },
+        { "datasource": { "uid": "prometheus-ds" }, "expr": "probe_success{job=\"health-perfiles-service\"}", "legendFormat": "perfiles-service", "refId": "F" },
+        { "datasource": { "uid": "prometheus-ds" }, "expr": "probe_success{job=\"health-reportes-service\"}", "legendFormat": "reportes-service", "refId": "G" },
+        { "datasource": { "uid": "prometheus-ds" }, "expr": "probe_success{job=\"health-vacaciones-service\"}", "legendFormat": "vacaciones-service", "refId": "H" }
       ]
     },
     {

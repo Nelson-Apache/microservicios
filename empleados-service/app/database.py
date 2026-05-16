@@ -1,25 +1,24 @@
 import os
+import enum
 from typing import Optional, List, Tuple
 from contextlib import contextmanager
 from datetime import datetime
 
-from sqlalchemy import create_engine, Column, Integer, String, DateTime, Boolean, Float
+from sqlalchemy import create_engine, Column, Integer, String, DateTime, Boolean, Float, Enum as SAEnum
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, Session
 from sqlalchemy.exc import IntegrityError
 
-# Base de SQLAlchemy
 Base = declarative_base()
 
 
-# ─────────────────────────────────────────
-# Modelo SQLAlchemy
-# ─────────────────────────────────────────
+class EstadoEmpleadoDB(str, enum.Enum):
+    ACTIVO = "ACTIVO"
+    EN_VACACIONES = "EN_VACACIONES"
+    RETIRADO = "RETIRADO"
+
 
 class EmpleadoModel(Base):
-    """
-    Modelo de base de datos para empleados usando SQLAlchemy.
-    """
     __tablename__ = "empleados"
 
     id = Column(Integer, primary_key=True, index=True)
@@ -30,6 +29,8 @@ class EmpleadoModel(Base):
     salario = Column(Float, nullable=True)
     fecha_ingreso = Column(DateTime, nullable=False, default=datetime.utcnow)
     activo = Column(Boolean, nullable=False, default=True)
+    estado = Column(SAEnum(EstadoEmpleadoDB), nullable=False, default=EstadoEmpleadoDB.ACTIVO)
+    fecha_retiro = Column(DateTime, nullable=True)
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
     updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -121,7 +122,6 @@ class EmpleadosDB:
 
     @staticmethod
     def _modelo_a_dict(empleado_model: EmpleadoModel) -> dict:
-        """Convierte un EmpleadoModel de SQLAlchemy a diccionario."""
         return {
             "id": empleado_model.id,
             "nombre": empleado_model.nombre,
@@ -131,6 +131,8 @@ class EmpleadosDB:
             "salario": empleado_model.salario,
             "fecha_ingreso": empleado_model.fecha_ingreso.isoformat() if empleado_model.fecha_ingreso else None,
             "activo": empleado_model.activo,
+            "estado": empleado_model.estado.value if empleado_model.estado else "ACTIVO",
+            "fecha_retiro": empleado_model.fecha_retiro.isoformat() if empleado_model.fecha_retiro else None,
         }
 
     # ─────────────────────────────────────────
@@ -167,7 +169,6 @@ class EmpleadosDB:
                 if existe_email:
                     raise EmpleadoYaExisteError(f"Ya existe un empleado con el email {email}.")
 
-            # Crear nuevo empleado
             nuevo_empleado = EmpleadoModel(
                 id=id,
                 nombre=nombre,
@@ -176,7 +177,8 @@ class EmpleadosDB:
                 email=email,
                 salario=salario,
                 fecha_ingreso=fecha_ingreso or datetime.utcnow(),
-                activo=True
+                activo=True,
+                estado=EstadoEmpleadoDB.ACTIVO,
             )
 
             session.add(nuevo_empleado)
@@ -236,6 +238,33 @@ class EmpleadosDB:
             session.commit()
             session.refresh(empleado)
 
+            return self._modelo_a_dict(empleado)
+
+    def retirar_empleado(self, empleado_id: int) -> dict:
+        """
+        Marca al empleado como RETIRADO, registra fecha_retiro y lo desactiva.
+
+        Raises:
+            EmpleadoNoEncontradoError: Si el empleado no existe o ya está retirado.
+        """
+        with get_db_session() as session:
+            empleado = session.query(EmpleadoModel).filter(
+                EmpleadoModel.id == empleado_id,
+                EmpleadoModel.activo == True,
+                EmpleadoModel.estado != EstadoEmpleadoDB.RETIRADO
+            ).first()
+
+            if not empleado:
+                raise EmpleadoNoEncontradoError(
+                    f"No se encontró empleado activo con id {empleado_id} para retirar."
+                )
+
+            empleado.estado = EstadoEmpleadoDB.RETIRADO
+            empleado.activo = False
+            empleado.fecha_retiro = datetime.utcnow()
+            empleado.updated_at = datetime.utcnow()
+            session.commit()
+            session.refresh(empleado)
             return self._modelo_a_dict(empleado)
 
     def eliminar_empleado(self, empleado_id: int) -> bool:

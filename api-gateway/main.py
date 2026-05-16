@@ -2,6 +2,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import Response, JSONResponse
 from fastapi.openapi.utils import get_openapi
 import httpx
+import asyncio
 from jose import jwt, JWTError
 import os
 import logging
@@ -72,6 +73,7 @@ SERVICIOS = {
     "notificaciones": os.environ.get("NOTIFICACIONES_SERVICE_URL", "http://notificaciones-service:3000"),
     "perfiles":       os.environ.get("PERFILES_SERVICE_URL",       "http://perfiles-service:3000"),
     "reportes":       os.environ.get("REPORTES_SERVICE_URL",       "http://reportes-service:3000"),
+    "vacaciones":     os.environ.get("VACACIONES_SERVICE_URL",     "http://vacaciones-service:8086"),
 }
 
 
@@ -207,6 +209,53 @@ class _ErrorHTTP(Exception):
 async def verificar_salud():
     """Verifica que el API Gateway está operativo."""
     return {"status": "UP", "service": "api-gateway", "version": "1.0.0"}
+
+
+@app.get(
+    "/empleados/{id}",
+    tags=["Empleados"],
+    summary="Obtener empleado con su perfil (composición de datos)",
+)
+async def obtener_empleado_con_perfil(id: int, request: Request):
+    """
+    Llama en paralelo a empleados-service y perfiles-service y combina la respuesta.
+    Requiere token JWT válido.
+    """
+    if not es_ruta_publica(request.url.path):
+        try:
+            payload = validar_y_obtener_payload(request.headers.get("Authorization"))
+        except _ErrorHTTP as error_http:
+            return error_http.respuesta
+
+    cabeceras = {
+        k: v for k, v in request.headers.items()
+        if k.lower() not in ("host", "content-length", "transfer-encoding")
+    }
+
+    url_empleado = f"{SERVICIOS['empleados']}/empleados/{id}"
+    url_perfil = f"{SERVICIOS['perfiles']}/perfiles/{id}"
+
+    async with httpx.AsyncClient(timeout=10.0) as cliente:
+        tarea_empleado = cliente.get(url_empleado, headers=cabeceras)
+        tarea_perfil = cliente.get(url_perfil, headers=cabeceras)
+        resultados = await asyncio.gather(tarea_empleado, tarea_perfil, return_exceptions=True)
+
+    resp_empleado, resp_perfil = resultados
+
+    if isinstance(resp_empleado, Exception) or resp_empleado.status_code != 200:
+        codigo = 503 if isinstance(resp_empleado, Exception) else resp_empleado.status_code
+        detalle = "No disponible" if isinstance(resp_empleado, Exception) else resp_empleado.text
+        return JSONResponse(status_code=codigo, content={"error": detalle})
+
+    datos_empleado = resp_empleado.json()
+    datos_perfil = {}
+    if not isinstance(resp_perfil, Exception) and resp_perfil.status_code == 200:
+        datos_perfil = resp_perfil.json()
+
+    return JSONResponse(
+        status_code=200,
+        content={"empleado": datos_empleado, "perfil": datos_perfil},
+    )
 
 
 # ─────────────────────────────────────────────────────────────────────────────

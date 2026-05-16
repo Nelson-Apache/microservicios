@@ -1,22 +1,16 @@
+import enum
 from pydantic import BaseModel, Field, EmailStr
 from typing import Optional, List
 from datetime import datetime
 
 
-class Empleado(BaseModel):
-    """
-    Modelo Pydantic para representar un empleado.
+class EstadoEmpleado(str, enum.Enum):
+    ACTIVO = "ACTIVO"
+    EN_VACACIONES = "EN_VACACIONES"
+    RETIRADO = "RETIRADO"
 
-    Attributes:
-        id: Identificador único del empleado
-        nombre: Nombre completo del empleado
-        cargo: Cargo o posición del empleado en la empresa
-        departamento_id: ID del departamento al que pertenece
-        email: Correo electrónico del empleado
-        salario: Salario del empleado
-        fecha_ingreso: Fecha de ingreso a la empresa
-        activo: Indica si el empleado está activo
-    """
+
+class Empleado(BaseModel):
     id: int = Field(..., description="Identificador único del empleado", gt=0)
     nombre: str = Field(..., description="Nombre completo del empleado", min_length=1, max_length=100)
     cargo: str = Field(..., description="Cargo del empleado", min_length=1, max_length=100)
@@ -25,6 +19,8 @@ class Empleado(BaseModel):
     salario: Optional[float] = Field(None, description="Salario del empleado", ge=0)
     fecha_ingreso: Optional[str] = Field(None, description="Fecha de ingreso (ISO format)")
     activo: Optional[bool] = Field(True, description="Indica si el empleado está activo")
+    estado: EstadoEmpleado = Field(EstadoEmpleado.ACTIVO, description="Estado del empleado")
+    fecha_retiro: Optional[str] = Field(None, description="Fecha de retiro (auditoría)")
 
     class Config:
         json_schema_extra = {
@@ -36,7 +32,9 @@ class Empleado(BaseModel):
                 "email": "juan.perez@empresa.com",
                 "salario": 50000.0,
                 "fecha_ingreso": "2024-01-15T00:00:00",
-                "activo": True
+                "activo": True,
+                "estado": "ACTIVO",
+                "fecha_retiro": None
             }
         }
 

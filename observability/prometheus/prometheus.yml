@@ -2,9 +2,13 @@ global:
   scrape_interval: 15s
   evaluation_interval: 15s
 
-# Prometheus consulta cada microservicio por HTTP y recolecta métricas en Pull.
-# Los jobs de abajo deben coincidir con los nombres de servicio usados en Grafana.
 scrape_configs:
+
+  # ─────────────────────────────────────────────────────────────
+  # Métricas de aplicación (pull desde /metrics)
+  # La métrica `up` aquí solo indica que el endpoint /metrics responde.
+  # ─────────────────────────────────────────────────────────────
+
   - job_name: 'api-gateway'
     metrics_path: '/metrics'
     static_configs:
@@ -39,3 +43,159 @@ scrape_configs:
     metrics_path: '/metrics'
     static_configs:
       - targets: ['reportes-service:3000']
+
+  - job_name: 'vacaciones-service'
+    metrics_path: '/metrics'
+    static_configs:
+      - targets: ['vacaciones-service:8086']
+
+  # ─────────────────────────────────────────────────────────────
+  # Sondeo de /health via blackbox exporter
+  # probe_success=1 → el /health respondió HTTP 200 con status UP
+  # probe_success=0 → el servicio está caído o degradado
+  # Esto es más preciso que `up` porque verifica el estado real.
+  # ─────────────────────────────────────────────────────────────
+
+  - job_name: 'health-api-gateway'
+    metrics_path: '/probe'
+    params:
+      module: [http_health]
+    static_configs:
+      - targets:
+          - 'http://api-gateway:8000/health'
+        labels:
+          servicio: 'api-gateway'
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: instance
+      - target_label: __address__
+        replacement: 'blackbox-exporter:9115'
+
+  - job_name: 'health-auth-service'
+    metrics_path: '/probe'
+    params:
+      module: [http_health]
+    static_configs:
+      - targets:
+          - 'http://auth-service:8085/health'
+        labels:
+          servicio: 'auth-service'
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: instance
+      - target_label: __address__
+        replacement: 'blackbox-exporter:9115'
+
+  - job_name: 'health-empleados-service'
+    metrics_path: '/probe'
+    params:
+      module: [http_health]
+    static_configs:
+      - targets:
+          - 'http://empleados-service:8080/health'
+        labels:
+          servicio: 'empleados-service'
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: instance
+      - target_label: __address__
+        replacement: 'blackbox-exporter:9115'
+
+  - job_name: 'health-departamentos-service'
+    metrics_path: '/probe'
+    params:
+      module: [http_health]
+    static_configs:
+      - targets:
+          - 'http://departamentos-service:8080/actuator/health'
+        labels:
+          servicio: 'departamentos-service'
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: instance
+      - target_label: __address__
+        replacement: 'blackbox-exporter:9115'
+
+  - job_name: 'health-notificaciones-service'
+    metrics_path: '/probe'
+    params:
+      module: [http_health]
+    static_configs:
+      - targets:
+          - 'http://notificaciones-service:3000/health'
+        labels:
+          servicio: 'notificaciones-service'
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: instance
+      - target_label: __address__
+        replacement: 'blackbox-exporter:9115'
+
+  - job_name: 'health-perfiles-service'
+    metrics_path: '/probe'
+    params:
+      module: [http_health]
+    static_configs:
+      - targets:
+          - 'http://perfiles-service:3000/health'
+        labels:
+          servicio: 'perfiles-service'
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: instance
+      - target_label: __address__
+        replacement: 'blackbox-exporter:9115'
+
+  - job_name: 'health-reportes-service'
+    metrics_path: '/probe'
+    params:
+      module: [http_health]
+    static_configs:
+      - targets:
+          - 'http://reportes-service:3000/health'
+        labels:
+          servicio: 'reportes-service'
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: instance
+      - target_label: __address__
+        replacement: 'blackbox-exporter:9115'
+
+  - job_name: 'health-vacaciones-service'
+    metrics_path: '/probe'
+    params:
+      module: [http_health]
+    static_configs:
+      - targets:
+          - 'http://vacaciones-service:8086/health'
+        labels:
+          servicio: 'vacaciones-service'
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: instance
+      - target_label: __address__
+        replacement: 'blackbox-exporter:9115'
+
+  # ─────────────────────────────────────────────────────────────
+  # Auto-monitoreo del blackbox exporter
+  # ─────────────────────────────────────────────────────────────
+  - job_name: 'blackbox-exporter'
+    metrics_path: '/metrics'
+    static_configs:
+      - targets: ['blackbox-exporter:9115']

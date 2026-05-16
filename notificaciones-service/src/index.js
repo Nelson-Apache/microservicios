@@ -117,12 +117,18 @@ async function initRabbitMQ() {
     // Cola dedicada exclusivamente a este servicio
     const q = await channel.assertQueue('notificaciones_queue', { durable: true });
 
-    // Eventos de empleados (Reto 3)
+    // Eventos de empleados
     await channel.bindQueue(q.queue, exchange, 'empleado.creado');
     await channel.bindQueue(q.queue, exchange, 'empleado.eliminado');
-    // Eventos de seguridad del auth-service (Reto 4)
+    // Eventos de seguridad del auth-service
     await channel.bindQueue(q.queue, exchange, 'usuario.creado');
     await channel.bindQueue(q.queue, exchange, 'usuario.recuperacion');
+    // Eventos de vacaciones
+    await channel.bindQueue(q.queue, exchange, 'vacaciones.programadas');
+    await channel.bindQueue(q.queue, exchange, 'vacaciones.finalizadas');
+    // Eventos de cuenta (auth-service)
+    await channel.bindQueue(q.queue, exchange, 'cuenta.activada');
+    await channel.bindQueue(q.queue, exchange, 'cuenta.desactivada');
 
     logger.info('Conectado a RabbitMQ, esperando mensajes...');
 
@@ -154,9 +160,32 @@ async function initRabbitMQ() {
         mensajeStr = `Para establecer o recuperar su contraseña, utilice el siguiente token: ${eventData.token}`;
 
       } else if (routingKey === 'usuario.recuperacion') {
-        // Notificación de seguridad: recuperación de contraseña solicitada (Reto 4)
         tipo = "SEGURIDAD";
         mensajeStr = `Para establecer o recuperar su contraseña, utilice el siguiente token: ${eventData.token}`;
+
+      } else if (routingKey === 'vacaciones.programadas') {
+        tipo = "VACACIONES";
+        destinatario = eventData.email || destinatario;
+        mensajeStr = `Sus vacaciones han sido programadas del ${eventData.fecha_inicio} al ${eventData.fecha_fin}. Su cuenta será desactivada temporalmente durante ese período.`;
+        empleadoId = eventData.empleado_id ? String(eventData.empleado_id) : null;
+
+      } else if (routingKey === 'vacaciones.finalizadas') {
+        tipo = "VACACIONES";
+        destinatario = eventData.email || destinatario;
+        mensajeStr = `Sus vacaciones han finalizado. Su cuenta ha sido reactivada.`;
+        empleadoId = eventData.empleado_id ? String(eventData.empleado_id) : null;
+
+      } else if (routingKey === 'cuenta.activada') {
+        tipo = "SEGURIDAD";
+        destinatario = eventData.email || destinatario;
+        mensajeStr = `Su cuenta ha sido activada exitosamente. Ya puede iniciar sesión en el sistema.`;
+        empleadoId = eventData.usuario_id ? String(eventData.usuario_id) : null;
+
+      } else if (routingKey === 'cuenta.desactivada') {
+        tipo = "SEGURIDAD";
+        destinatario = eventData.email || destinatario;
+        mensajeStr = `Su cuenta ha sido desactivada. Motivo: ${eventData.motivo || 'administrativo'}.`;
+        empleadoId = eventData.usuario_id ? String(eventData.usuario_id) : null;
       }
 
       // Simulación de envío de correo electrónico mediante log
