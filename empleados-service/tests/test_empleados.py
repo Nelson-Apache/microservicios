@@ -297,5 +297,95 @@ def test_buscar_empleados_con_filtros(mocker):
     assert resultado["total"] == 0
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Tests de offboarding — retirar_empleado
+# ─────────────────────────────────────────────────────────────────────────────
+
+def test_retirar_empleado_exitoso(mocker):
+    """Debe marcar al empleado como RETIRADO, desactivarlo y registrar fecha_retiro."""
+    from app.database import EmpleadosDB, EstadoEmpleadoDB
+    from datetime import datetime
+
+    db = EmpleadosDB()
+
+    mock_session = mocker.MagicMock()
+    mocker.patch('app.database.get_db_session', return_value=mock_session.__enter__)
+
+    mock_empleado = mocker.MagicMock()
+    mock_empleado.id = 1
+    mock_empleado.nombre = "Juan Pérez"
+    mock_empleado.cargo = "Developer"
+    mock_empleado.email = "juan@empresa.com"
+    mock_empleado.activo = True
+    mock_empleado.estado = EstadoEmpleadoDB.ACTIVO
+    mock_empleado.fecha_retiro = None
+    mock_empleado.salario = 50000.0
+    mock_empleado.departamento_id = None
+    mock_empleado.fecha_ingreso = None
+    mock_empleado.updated_at = None
+
+    mock_session.__enter__.return_value.query.return_value.filter.return_value.first.return_value = mock_empleado
+
+    db.retirar_empleado(1)
+
+    assert mock_empleado.estado == EstadoEmpleadoDB.RETIRADO
+    assert mock_empleado.activo is False
+    assert mock_empleado.fecha_retiro is not None
+    mock_session.__enter__.return_value.commit.assert_called_once()
+
+
+def test_retirar_empleado_no_encontrado(mocker):
+    """Debe lanzar EmpleadoNoEncontradoError si el empleado no existe o ya está retirado."""
+    from app.database import EmpleadosDB, EmpleadoNoEncontradoError
+
+    db = EmpleadosDB()
+
+    mock_session = mocker.MagicMock()
+    mocker.patch('app.database.get_db_session', return_value=mock_session.__enter__)
+    mock_session.__enter__.return_value.query.return_value.filter.return_value.first.return_value = None
+
+    with pytest.raises(EmpleadoNoEncontradoError):
+        db.retirar_empleado(999)
+
+
+def test_retirar_empleado_ya_retirado(mocker):
+    """La query filtra por activo=True y estado!=RETIRADO, así que un empleado ya retirado lanza error."""
+    from app.database import EmpleadosDB, EmpleadoNoEncontradoError
+
+    db = EmpleadosDB()
+
+    mock_session = mocker.MagicMock()
+    mocker.patch('app.database.get_db_session', return_value=mock_session.__enter__)
+    # La query devuelve None porque el empleado ya está RETIRADO (filtrado por la query)
+    mock_session.__enter__.return_value.query.return_value.filter.return_value.first.return_value = None
+
+    with pytest.raises(EmpleadoNoEncontradoError):
+        db.retirar_empleado(1)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Tests del enum EstadoEmpleado
+# ─────────────────────────────────────────────────────────────────────────────
+
+def test_estado_empleado_valores():
+    """El enum debe tener exactamente los tres estados requeridos por el PDF."""
+    from app.models.empleado import EstadoEmpleado
+
+    assert EstadoEmpleado.ACTIVO == "ACTIVO"
+    assert EstadoEmpleado.EN_VACACIONES == "EN_VACACIONES"
+    assert EstadoEmpleado.RETIRADO == "RETIRADO"
+
+
+def test_empleado_estado_por_defecto():
+    """Un empleado nuevo debe tener estado ACTIVO por defecto."""
+    from app.models.empleado import EmpleadoCreate, EstadoEmpleado
+
+    empleado = EmpleadoCreate(id=1, nombre="Test", cargo="Dev")
+    # El modelo Empleado (no Create) tiene el estado con default ACTIVO
+    from app.models.empleado import Empleado
+    empleado_completo = Empleado(id=1, nombre="Test", cargo="Dev")
+    assert empleado_completo.estado == EstadoEmpleado.ACTIVO
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
