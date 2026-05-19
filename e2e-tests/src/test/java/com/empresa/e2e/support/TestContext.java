@@ -44,15 +44,15 @@ public class TestContext {
      * Credenciales del usuario ADMIN (rol con permisos completos).
      * Se usan en escenarios que requieren crear/eliminar empleados.
      */
-    public final String adminUser     = env("ADMIN_USER",     null);
-    public final String adminPassword = env("ADMIN_PASSWORD", null);
+    public final String adminUser     = env("ADMIN_USER",     "admin");
+    public final String adminPassword = env("ADMIN_PASSWORD", "admin123");
 
-    /** 
+    /**
      * Credenciales del usuario USER (rol básico con permisos limitados).
      * Se usan en escenarios de seguridad para verificar restricciones RBAC.
      */
-    public final String userUser     = env("USER_USER",     null);
-    public final String userPassword = env("USER_PASSWORD", null);
+    public final String userUser     = env("USER_USER",     "usuario");
+    public final String userPassword = env("USER_PASSWORD", "usuario123");
 
     // ══════════════════════════════════════════════════════════════════════════
     // ESTADO POR ESCENARIO

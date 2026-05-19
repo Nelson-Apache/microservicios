@@ -1,0 +1,733 @@
+{
+  "id": null,
+  "uid": "api-traffic",
+  "title": "APIs — Monitor de Tráfico",
+  "description": "Comportamiento en tiempo real de las APIs: tráfico, errores, latencia y logs. Selecciona un servicio para filtrar todos los paneles.",
+  "tags": ["microservicios", "apis", "trafico"],
+  "timezone": "browser",
+  "schemaVersion": 38,
+  "version": 1,
+  "refresh": "15s",
+  "time": { "from": "now-1h", "to": "now" },
+
+  "templating": {
+    "list": [
+      {
+        "current": {},
+        "datasource": { "type": "prometheus", "uid": "prometheus-ds" },
+        "definition": "label_values(http_requests_total, job)",
+        "hide": 0,
+        "includeAll": true,
+        "multi": true,
+        "name": "servicio",
+        "label": "Servicio",
+        "options": [],
+        "query": {
+          "query": "label_values(http_requests_total, job)",
+          "refId": "StandardVariableQuery"
+        },
+        "refresh": 2,
+        "regex": "",
+        "sort": 1,
+        "type": "query",
+        "allValue": ".*"
+      }
+    ]
+  },
+
+  "panels": [
+
+    {
+      "id": 1,
+      "type": "row",
+      "title": "KPIs en Tiempo Real",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 },
+      "collapsed": false
+    },
+
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Solicitudes / seg",
+      "description": "Tasa total de peticiones HTTP entrantes en el último minuto para los servicios seleccionados.",
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 1 },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "value",
+        "graphMode": "area"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "color": { "mode": "fixed", "fixedColor": "blue" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [{ "color": "blue", "value": null }]
+          }
+        }
+      },
+      "targets": [
+        {
+          "datasource": { "uid": "prometheus-ds" },
+          "expr": "sum(rate(http_requests_total{job=~\"$servicio\"}[1m]))",
+          "legendFormat": "Python/Node",
+          "refId": "A"
+        },
+        {
+          "datasource": { "uid": "prometheus-ds" },
+          "expr": "sum(rate(http_server_requests_seconds_count{job=~\"$servicio\"}[1m]))",
+          "legendFormat": "Java",
+          "refId": "B"
+        }
+      ]
+    },
+
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Tasa de Error (%)",
+      "description": "Proporción de respuestas 4xx + 5xx sobre el total. Verde < 1%, amarillo < 5%, rojo >= 5%.",
+      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 1 },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "background",
+        "graphMode": "area"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "min": 0,
+          "max": 100,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green",  "value": null },
+              { "color": "yellow", "value": 1 },
+              { "color": "red",    "value": 5 }
+            ]
+          }
+        }
+      },
+      "targets": [
+        {
+          "datasource": { "uid": "prometheus-ds" },
+          "expr": "(\n  sum(rate(http_requests_total{status_code=~\"[45]..\", job=~\"$servicio\"}[1m]))\n  /\n  sum(rate(http_requests_total{job=~\"$servicio\"}[1m]))\n) * 100",
+          "legendFormat": "error %",
+          "refId": "A"
+        }
+      ]
+    },
+
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "Latencia P95",
+      "description": "El 95% de las solicitudes responden en menos de este tiempo. Por encima de 1s hay degradación perceptible para el usuario.",
+      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 1 },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "background",
+        "graphMode": "area"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green",  "value": null },
+              { "color": "yellow", "value": 0.5 },
+              { "color": "red",    "value": 2 }
+            ]
+          }
+        }
+      },
+      "targets": [
+        {
+          "datasource": { "uid": "prometheus-ds" },
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(http_request_duration_seconds_bucket{job=~\"$servicio\"}[2m])))",
+          "legendFormat": "p95",
+          "refId": "A"
+        }
+      ]
+    },
+
+    {
+      "id": 5,
+      "type": "stat",
+      "title": "Servicios Disponibles",
+      "description": "Servicios que responden HTTP 200 al health check. Rojo = hay servicios caídos.",
+      "gridPos": { "h": 4, "w": 6, "x": 18, "y": 1 },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "background",
+        "graphMode": "none"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "red",    "value": null },
+              { "color": "yellow", "value": 5 },
+              { "color": "green",  "value": 8 }
+            ]
+          }
+        }
+      },
+      "targets": [
+        {
+          "datasource": { "uid": "prometheus-ds" },
+          "expr": "count(probe_success{job=~\"health-.*\"} == 1)",
+          "legendFormat": "UP",
+          "refId": "A"
+        }
+      ]
+    },
+
+    {
+      "id": 10,
+      "type": "row",
+      "title": "Distribución de Respuestas HTTP",
+      "description": "Qué proporción del tráfico termina en 2xx (éxito), 4xx (error del cliente) o 5xx (error del servidor).",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 5 },
+      "collapsed": false
+    },
+
+    {
+      "id": 11,
+      "type": "timeseries",
+      "title": "Tráfico por Clase de Respuesta (req/s)",
+      "description": "Área apilada: el canal verde es tráfico sano. Cualquier banda roja o naranja visible es tráfico fallando en ese instante.",
+      "gridPos": { "h": 8, "w": 16, "x": 0, "y": 6 },
+      "options": {
+        "tooltip": { "mode": "multi", "sort": "none" },
+        "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "custom": {
+            "lineWidth": 0,
+            "fillOpacity": 80,
+            "stacking": { "group": "A", "mode": "normal" },
+            "spanNulls": false
+          }
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byFrameRefID", "options": "A" },
+            "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "green" } }]
+          },
+          {
+            "matcher": { "id": "byFrameRefID", "options": "B" },
+            "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "orange" } }]
+          },
+          {
+            "matcher": { "id": "byFrameRefID", "options": "C" },
+            "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "red" } }]
+          }
+        ]
+      },
+      "targets": [
+        {
+          "datasource": { "uid": "prometheus-ds" },
+          "expr": "sum(rate(http_requests_total{status_code=~\"2..\", job=~\"$servicio\"}[1m]))",
+          "legendFormat": "2xx — éxito",
+          "refId": "A"
+        },
+        {
+          "datasource": { "uid": "prometheus-ds" },
+          "expr": "sum(rate(http_requests_total{status_code=~\"4..\", job=~\"$servicio\"}[1m]))",
+          "legendFormat": "4xx — error cliente",
+          "refId": "B"
+        },
+        {
+          "datasource": { "uid": "prometheus-ds" },
+          "expr": "sum(rate(http_requests_total{status_code=~\"5..\", job=~\"$servicio\"}[1m]))",
+          "legendFormat": "5xx — error servidor",
+          "refId": "C"
+        }
+      ]
+    },
+
+    {
+      "id": 12,
+      "type": "piechart",
+      "title": "Distribución de Códigos (últimos 5 min)",
+      "description": "De cada 100 solicitudes en los últimos 5 minutos, cuántas terminaron en 2xx, 4xx y 5xx.",
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 6 },
+      "options": {
+        "pieType": "pie",
+        "legend": { "displayMode": "table", "placement": "right", "values": ["percent", "value"] },
+        "tooltip": { "mode": "single" }
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "2xx" },
+            "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "green" } }]
+          },
+          {
+            "matcher": { "id": "byName", "options": "4xx" },
+            "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "orange" } }]
+          },
+          {
+            "matcher": { "id": "byName", "options": "5xx" },
+            "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "red" } }]
+          }
+        ]
+      },
+      "targets": [
+        {
+          "datasource": { "uid": "prometheus-ds" },
+          "expr": "sum(increase(http_requests_total{status_code=~\"2..\", job=~\"$servicio\"}[5m]))",
+          "legendFormat": "2xx",
+          "refId": "A",
+          "instant": true
+        },
+        {
+          "datasource": { "uid": "prometheus-ds" },
+          "expr": "sum(increase(http_requests_total{status_code=~\"4..\", job=~\"$servicio\"}[5m]))",
+          "legendFormat": "4xx",
+          "refId": "B",
+          "instant": true
+        },
+        {
+          "datasource": { "uid": "prometheus-ds" },
+          "expr": "sum(increase(http_requests_total{status_code=~\"5..\", job=~\"$servicio\"}[5m]))",
+          "legendFormat": "5xx",
+          "refId": "C",
+          "instant": true
+        }
+      ]
+    },
+
+    {
+      "id": 20,
+      "type": "row",
+      "title": "Latencia y Rendimiento",
+      "description": "Qué tan rápido responde cada servicio. P50 = experiencia típica. P95/P99 = peor caso.",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 14 },
+      "collapsed": false
+    },
+
+    {
+      "id": 21,
+      "type": "timeseries",
+      "title": "Percentiles de Latencia (p50 / p95 / p99)",
+      "description": "Si p99 sube pero p50 no, solo algunos endpoints son lentos. Si ambos suben, el problema es sistémico.",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 15 },
+      "options": {
+        "tooltip": { "mode": "multi" },
+        "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"] }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": { "lineWidth": 2, "fillOpacity": 8 },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green",  "value": null },
+              { "color": "yellow", "value": 0.5 },
+              { "color": "red",    "value": 2 }
+            ]
+          }
+        }
+      },
+      "targets": [
+        {
+          "datasource": { "uid": "prometheus-ds" },
+          "expr": "histogram_quantile(0.50, sum by (le) (rate(http_request_duration_seconds_bucket{job=~\"$servicio\"}[2m])))",
+          "legendFormat": "p50 — mediana",
+          "refId": "A"
+        },
+        {
+          "datasource": { "uid": "prometheus-ds" },
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(http_request_duration_seconds_bucket{job=~\"$servicio\"}[2m])))",
+          "legendFormat": "p95",
+          "refId": "B"
+        },
+        {
+          "datasource": { "uid": "prometheus-ds" },
+          "expr": "histogram_quantile(0.99, sum by (le) (rate(http_request_duration_seconds_bucket{job=~\"$servicio\"}[2m])))",
+          "legendFormat": "p99 — peor caso",
+          "refId": "C"
+        }
+      ]
+    },
+
+    {
+      "id": 22,
+      "type": "timeseries",
+      "title": "Solicitudes Activas (en vuelo)",
+      "description": "Solicitudes HTTP siendo procesadas en este momento. Un pico brusco sin aumento de tasa indica backpressure o bloqueo.",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 15 },
+      "options": {
+        "tooltip": { "mode": "multi" },
+        "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"] }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": { "lineWidth": 2, "fillOpacity": 20 },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green",  "value": null },
+              { "color": "yellow", "value": 10 },
+              { "color": "red",    "value": 50 }
+            ]
+          }
+        }
+      },
+      "targets": [
+        {
+          "datasource": { "uid": "prometheus-ds" },
+          "expr": "sum by (job) (http_requests_in_progress{job=~\"$servicio\"})",
+          "legendFormat": "{{job}}",
+          "refId": "A"
+        }
+      ]
+    },
+
+    {
+      "id": 30,
+      "type": "row",
+      "title": "Ciclo de Vida de una Solicitud",
+      "description": "Qué pasa desde que llega una petición hasta que el cliente recibe respuesta: éxito, fallo y tipo de error.",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 23 },
+      "collapsed": false
+    },
+
+    {
+      "id": 31,
+      "type": "timeseries",
+      "title": "Tasa de Éxito por Servicio (%)",
+      "description": "100% = todas las solicitudes de ese servicio terminan en 2xx. Una caída identifica exactamente qué servicio está fallando.",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 24 },
+      "options": {
+        "tooltip": { "mode": "multi" },
+        "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["mean", "min"] }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "min": 0,
+          "max": 100,
+          "custom": { "lineWidth": 2, "fillOpacity": 10 },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "red",    "value": null },
+              { "color": "yellow", "value": 90 },
+              { "color": "green",  "value": 99 }
+            ]
+          }
+        }
+      },
+      "targets": [
+        {
+          "datasource": { "uid": "prometheus-ds" },
+          "expr": "(\n  sum by (job) (rate(http_requests_total{status_code=~\"2..\", job=~\"$servicio\"}[2m]))\n  /\n  sum by (job) (rate(http_requests_total{job=~\"$servicio\"}[2m]))\n) * 100",
+          "legendFormat": "{{job}}",
+          "refId": "A"
+        }
+      ]
+    },
+
+    {
+      "id": 32,
+      "type": "timeseries",
+      "title": "Errores por Código HTTP",
+      "description": "401/403 = auth fallando. 404 = ruta mal configurada. 422 = validación. 500/503 = error interno o servicio dependiente caído.",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 24 },
+      "options": {
+        "tooltip": { "mode": "multi" },
+        "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["sum"] }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "custom": { "lineWidth": 2, "fillOpacity": 20 }
+        }
+      },
+      "targets": [
+        {
+          "datasource": { "uid": "prometheus-ds" },
+          "expr": "sum by (status_code) (rate(http_requests_total{status_code=~\"[45]..\", job=~\"$servicio\"}[1m]))",
+          "legendFormat": "HTTP {{status_code}}",
+          "refId": "A"
+        },
+        {
+          "datasource": { "uid": "prometheus-ds" },
+          "expr": "sum by (status) (rate(http_server_requests_seconds_count{status=~\"[45]..\", job=~\"$servicio\"}[1m]))",
+          "legendFormat": "HTTP {{status}} (java)",
+          "refId": "B"
+        }
+      ]
+    },
+
+    {
+      "id": 40,
+      "type": "row",
+      "title": "Análisis por Endpoint",
+      "description": "Rendimiento y errores desglosados por ruta individual — identifica el endpoint problemático antes de revisar código.",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 32 },
+      "collapsed": false
+    },
+
+    {
+      "id": 41,
+      "type": "timeseries",
+      "title": "p95 Latencia por Endpoint",
+      "description": "Un endpoint específico lento eleva el p95 global. Muestra los 10 endpoints más lentos del período.",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 33 },
+      "options": {
+        "tooltip": { "mode": "multi" },
+        "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"] }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": { "lineWidth": 2, "fillOpacity": 8 },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green",  "value": null },
+              { "color": "yellow", "value": 0.5 },
+              { "color": "red",    "value": 2 }
+            ]
+          }
+        }
+      },
+      "targets": [
+        {
+          "datasource": { "uid": "prometheus-ds" },
+          "expr": "topk(10,\n  histogram_quantile(0.95,\n    sum by (handler, job, le) (rate(http_request_duration_seconds_bucket{job=~\"$servicio\"}[5m]))\n  )\n)",
+          "legendFormat": "{{job}} — {{handler}}",
+          "refId": "A"
+        }
+      ]
+    },
+
+    {
+      "id": 42,
+      "type": "bargauge",
+      "title": "Top Endpoints por Volumen (req/s)",
+      "description": "Los endpoints con más tráfico son los más críticos. Si uno de estos falla, el impacto es máximo.",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 33 },
+      "options": {
+        "reduceOptions": { "calcs": ["mean"] },
+        "orientation": "horizontal",
+        "displayMode": "gradient",
+        "showUnfilled": true
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "blue",   "value": null },
+              { "color": "green",  "value": 0.1 },
+              { "color": "yellow", "value": 1 },
+              { "color": "red",    "value": 10 }
+            ]
+          }
+        }
+      },
+      "targets": [
+        {
+          "datasource": { "uid": "prometheus-ds" },
+          "expr": "topk(12, sum by (handler, job) (rate(http_requests_total{job=~\"$servicio\"}[5m])))",
+          "legendFormat": "{{job}} — {{handler}}",
+          "refId": "A"
+        }
+      ]
+    },
+
+    {
+      "id": 43,
+      "type": "bargauge",
+      "title": "Top Endpoints con Mayor Error Rate (%)",
+      "description": "Endpoints con mayor proporción de respuestas 4xx+5xx. El endpoint con más errores es el primer lugar donde investigar.",
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 41 },
+      "options": {
+        "reduceOptions": { "calcs": ["mean"] },
+        "orientation": "horizontal",
+        "displayMode": "gradient",
+        "showUnfilled": true
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "min": 0,
+          "max": 100,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green",  "value": null },
+              { "color": "yellow", "value": 5 },
+              { "color": "red",    "value": 20 }
+            ]
+          }
+        }
+      },
+      "targets": [
+        {
+          "datasource": { "uid": "prometheus-ds" },
+          "expr": "topk(12,\n  (\n    sum by (handler, job) (rate(http_requests_total{status_code=~\"[45]..\", job=~\"$servicio\"}[5m]))\n    /\n    sum by (handler, job) (rate(http_requests_total{job=~\"$servicio\"}[5m]))\n  ) * 100\n)",
+          "legendFormat": "{{job}} — {{handler}}",
+          "refId": "A"
+        }
+      ]
+    },
+
+    {
+      "id": 50,
+      "type": "row",
+      "title": "Logs en Tiempo Real",
+      "description": "Logs JSON de todos los servicios desde Loki. El contador de errores correlaciona directamente con las gráficas de error rate.",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 49 },
+      "collapsed": false
+    },
+
+    {
+      "id": 51,
+      "type": "stat",
+      "title": "Logs ERROR (últimos 5 min)",
+      "description": "Si este número sube al mismo tiempo que la tasa de error HTTP, el stack trace está en los logs debajo.",
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 50 },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "background",
+        "graphMode": "area"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green",  "value": null },
+              { "color": "yellow", "value": 1 },
+              { "color": "red",    "value": 10 }
+            ]
+          }
+        }
+      },
+      "targets": [
+        {
+          "datasource": { "uid": "loki-ds" },
+          "expr": "sum(count_over_time({service=~\"$servicio\"} |~ \"(ERROR|error)\" [5m]))",
+          "legendFormat": "errores",
+          "refId": "A"
+        }
+      ]
+    },
+
+    {
+      "id": 52,
+      "type": "stat",
+      "title": "Logs WARN (últimos 5 min)",
+      "description": "Un patrón creciente de WARNs suele preceder a errores. Sirve de alerta temprana antes de que falle un servicio.",
+      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 50 },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "background",
+        "graphMode": "area"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green",  "value": null },
+              { "color": "yellow", "value": 5 },
+              { "color": "red",    "value": 50 }
+            ]
+          }
+        }
+      },
+      "targets": [
+        {
+          "datasource": { "uid": "loki-ds" },
+          "expr": "sum(count_over_time({service=~\"$servicio\"} |~ \"(WARNING|WARN|warn)\" [5m]))",
+          "legendFormat": "warnings",
+          "refId": "A"
+        }
+      ]
+    },
+
+    {
+      "id": 53,
+      "type": "timeseries",
+      "title": "Volumen de Logs de Error por Servicio",
+      "description": "Cuántas líneas de log con ERROR genera cada servicio por minuto. Sirve para correlacionar el origen del error con las gráficas de HTTP.",
+      "gridPos": { "h": 6, "w": 12, "x": 12, "y": 50 },
+      "options": {
+        "tooltip": { "mode": "multi" },
+        "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["sum"] }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": { "lineWidth": 2, "fillOpacity": 20 },
+          "color": { "mode": "palette-classic" }
+        }
+      },
+      "targets": [
+        {
+          "datasource": { "uid": "loki-ds" },
+          "expr": "sum by (service) (count_over_time({service=~\"$servicio\"} |~ \"(ERROR|error)\" [1m]))",
+          "legendFormat": "{{service}}",
+          "refId": "A"
+        }
+      ]
+    },
+
+    {
+      "id": 54,
+      "type": "logs",
+      "title": "Stream de Logs — Todos los Niveles",
+      "description": "Logs en tiempo real de los servicios seleccionados. Expande cada línea para ver el JSON completo con traceId, servicio y mensaje.",
+      "gridPos": { "h": 14, "w": 24, "x": 0, "y": 56 },
+      "options": {
+        "dedupStrategy": "none",
+        "enableLogDetails": true,
+        "prettifyLogMessage": true,
+        "showCommonLabels": false,
+        "showLabels": true,
+        "showTime": true,
+        "sortOrder": "Descending",
+        "wrapLogMessage": true
+      },
+      "targets": [
+        {
+          "datasource": { "uid": "loki-ds" },
+          "expr": "{service=~\"$servicio\"} | json",
+          "legendFormat": "",
+          "refId": "A"
+        }
+      ]
+    }
+
+  ]
+}

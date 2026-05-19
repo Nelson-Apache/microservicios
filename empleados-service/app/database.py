@@ -267,6 +267,29 @@ class EmpleadosDB:
             session.refresh(empleado)
             return self._modelo_a_dict(empleado)
 
+    def actualizar_estado_empleado(self, empleado_id: int, nuevo_estado: str) -> bool:
+        """
+        Actualiza el campo estado de un empleado activo.
+        Usado por el consumidor de eventos de vacaciones.
+
+        Returns:
+            True si se actualizó, False si el empleado no existe o está retirado.
+        """
+        with get_db_session() as session:
+            empleado = session.query(EmpleadoModel).filter(
+                EmpleadoModel.id == empleado_id,
+                EmpleadoModel.activo == True,
+                EmpleadoModel.estado != EstadoEmpleadoDB.RETIRADO
+            ).first()
+
+            if not empleado:
+                return False
+
+            empleado.estado = EstadoEmpleadoDB(nuevo_estado)
+            empleado.updated_at = datetime.utcnow()
+            session.commit()
+            return True
+
     def eliminar_empleado(self, empleado_id: int) -> bool:
         """
         Elimina (soft delete) un empleado.

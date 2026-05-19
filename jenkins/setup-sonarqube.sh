@@ -2,13 +2,6 @@
 # =====================================================
 # Script de configuración automática de SonarQube
 # =====================================================
-# Este script:
-#   1. Espera a que SonarQube esté listo
-#   2. Crea un Quality Gate con cobertura >= 70%
-#   3. Configura el webhook a Jenkins
-#   4. Crea los proyectos
-#   5. Asigna el Quality Gate a los proyectos
-# =====================================================
 
 SONAR_URL="${SONAR_URL:-http://localhost:9000}"
 SONAR_USER="${SONAR_USER:-admin}"
@@ -16,96 +9,110 @@ SONAR_PASS="${SONAR_PASS:-admin123}"
 SONAR_DEFAULT_PASS="admin"
 JENKINS_URL="${JENKINS_URL:-http://jenkins:8080}"
 
-echo "╔══════════════════════════════════════════════════╗"
-echo "║  Configuración automática de SonarQube           ║"
-echo "╚══════════════════════════════════════════════════╝"
+echo "=================================================="
+echo "  Configuracion automatica de SonarQube"
+echo "=================================================="
 
 # ─── 1. Esperar a que SonarQube esté listo ───
 echo ""
-echo "⏳ Esperando a que SonarQube esté disponible..."
+echo "Esperando a que SonarQube este disponible..."
 until curl -s -f "${SONAR_URL}/api/system/status" | grep -q '"status":"UP"'; do
-    echo "   SonarQube no está listo aún... reintentando en 10s"
+    echo "  SonarQube no esta listo aun... reintentando en 10s"
     sleep 10
 done
-echo "✅ SonarQube está disponible"
+echo "SonarQube disponible"
 
 # ─── 2. Cambiar contraseña por defecto ───
 echo ""
-echo "🔐 Cambiando contraseña por defecto de admin..."
+echo "Cambiando contrasena por defecto de admin..."
 HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" \
     -u "${SONAR_USER}:${SONAR_DEFAULT_PASS}" \
     -X POST "${SONAR_URL}/api/users/change_password" \
     -d "login=${SONAR_USER}&previousPassword=${SONAR_DEFAULT_PASS}&password=${SONAR_PASS}")
 
 if [ "$HTTP_CODE" = "204" ]; then
-    echo "   ✅ Contraseña cambiada exitosamente"
+    echo "  Contrasena cambiada exitosamente"
 elif [ "$HTTP_CODE" = "401" ]; then
-    echo "   ℹ️  La contraseña ya fue cambiada previamente"
+    echo "  La contrasena ya fue cambiada previamente"
 else
-    echo "   ⚠️  Respuesta inesperada: HTTP ${HTTP_CODE}"
+    echo "  Respuesta HTTP ${HTTP_CODE}"
 fi
 
-# ─── 3. Crear Quality Gate con cobertura >= 70% ───
+# ─── 3. Deshabilitar autenticación forzada ───
+# Necesario para que Jenkins pueda enviar análisis sin token configurado
 echo ""
-echo "🚦 Creando Quality Gate 'CI-Pipeline-Gate' (cobertura >= 70%)..."
+echo "Deshabilitando autenticacion forzada para analisis..."
+curl -s -o /dev/null -u "${SONAR_USER}:${SONAR_PASS}" \
+    -X POST "${SONAR_URL}/api/settings/set" \
+    -d "key=sonar.forceAuthentication&value=false"
+echo "  Autenticacion forzada deshabilitada"
 
-# Crear el Quality Gate
+# ─── 4. Crear Quality Gate con cobertura >= 70% ───
+echo ""
+echo "Creando Quality Gate 'CI-Pipeline-Gate' (cobertura >= 70%)..."
+
 QG_RESPONSE=$(curl -s -u "${SONAR_USER}:${SONAR_PASS}" \
     -X POST "${SONAR_URL}/api/qualitygates/create" \
     -d "name=CI-Pipeline-Gate")
 
-QG_ID=$(echo "$QG_RESPONSE" | python3 -c "import sys,json; print(json.load(sys.stdin).get('id',''))" 2>/dev/null)
+QG_ID=$(echo "$QG_RESPONSE" | tr ',' '\n' | grep '"id"' | head -1 | tr -d '" ' | cut -d: -f2)
 
-if [ -n "$QG_ID" ] && [ "$QG_ID" != "" ]; then
-    echo "   ✅ Quality Gate creado con ID: ${QG_ID}"
+if [ -n "$QG_ID" ]; then
+    echo "  Quality Gate creado con ID: ${QG_ID}"
 
-    # Agregar condición de cobertura >= 70%
-    curl -s -u "${SONAR_USER}:${SONAR_PASS}" \
+    curl -s -o /dev/null -u "${SONAR_USER}:${SONAR_PASS}" \
         -X POST "${SONAR_URL}/api/qualitygates/create_condition" \
-        -d "gateName=CI-Pipeline-Gate&metric=new_coverage&op=LT&error=70" > /dev/null
+        -d "gateName=CI-Pipeline-Gate&metric=coverage&op=LT&error=70"
+    echo "  Condicion agregada: coverage >= 70%"
 
-    echo "   ✅ Condición agregada: new_coverage >= 70%"
-
-    # Establecer como Quality Gate por defecto
-    curl -s -u "${SONAR_USER}:${SONAR_PASS}" \
+    curl -s -o /dev/null -u "${SONAR_USER}:${SONAR_PASS}" \
         -X POST "${SONAR_URL}/api/qualitygates/set_as_default" \
-        -d "name=CI-Pipeline-Gate" > /dev/null
-
-    echo "   ✅ Establecido como Quality Gate por defecto"
+        -d "name=CI-Pipeline-Gate"
+    echo "  Establecido como Quality Gate por defecto"
 else
-    echo "   ℹ️  El Quality Gate ya existe o hubo un error"
+    echo "  El Quality Gate ya existe o no se pudo crear"
 fi
 
-# ─── 4. Configurar Webhook a Jenkins ───
+# ─── 5. Configurar Webhook a Jenkins ───
 echo ""
-echo "🔔 Configurando webhook de SonarQube → Jenkins..."
-
-WEBHOOK_RESPONSE=$(curl -s -u "${SONAR_USER}:${SONAR_PASS}" \
+echo "Configurando webhook SonarQube -> Jenkins..."
+curl -s -o /dev/null -u "${SONAR_USER}:${SONAR_PASS}" \
     -X POST "${SONAR_URL}/api/webhooks/create" \
-    -d "name=Jenkins&url=${JENKINS_URL}/sonarqube-webhook/")
+    -d "name=Jenkins&url=${JENKINS_URL}/sonarqube-webhook/"
+echo "  Webhook configurado: ${JENKINS_URL}/sonarqube-webhook/"
 
-echo "   ✅ Webhook configurado: ${JENKINS_URL}/sonarqube-webhook/"
-
-# ─── 5. Crear proyectos ───
+# ─── 6. Crear los 8 proyectos y asignar el Quality Gate ───
 echo ""
-echo "📦 Creando proyectos en SonarQube..."
+echo "Creando proyectos en SonarQube..."
 
-for PROJECT in "notificaciones-service:Notificaciones Service" "departamentos-service:Departamentos Service"; do
+for PROJECT in \
+    "api-gateway:API Gateway" \
+    "auth-service:Auth Service" \
+    "empleados-service:Empleados Service" \
+    "departamentos-service:Departamentos Service" \
+    "perfiles-service:Perfiles Service" \
+    "notificaciones-service:Notificaciones Service" \
+    "vacaciones-service:Vacaciones Service" \
+    "reportes-service:Reportes Service"; do
+
     KEY=$(echo "$PROJECT" | cut -d: -f1)
-    NAME=$(echo "$PROJECT" | cut -d: -f2)
+    NAME=$(echo "$PROJECT" | cut -d: -f2-)
 
-    curl -s -u "${SONAR_USER}:${SONAR_PASS}" \
+    curl -s -o /dev/null -u "${SONAR_USER}:${SONAR_PASS}" \
         -X POST "${SONAR_URL}/api/projects/create" \
-        -d "project=${KEY}&name=${NAME}" > /dev/null
+        -d "project=${KEY}&name=${NAME}"
 
-    echo "   ✅ Proyecto creado: ${KEY}"
+    curl -s -o /dev/null -u "${SONAR_USER}:${SONAR_PASS}" \
+        -X POST "${SONAR_URL}/api/qualitygates/select" \
+        -d "projectKey=${KEY}&gateName=CI-Pipeline-Gate"
+
+    echo "  ${KEY} [Quality Gate asignado]"
 done
 
 echo ""
-echo "╔══════════════════════════════════════════════════╗"
-echo "║  ✅ Configuración de SonarQube completada        ║"
-echo "║                                                  ║"
-echo "║  📊 Dashboard:  ${SONAR_URL}                     ║"
-echo "║  👤 Usuario:    ${SONAR_USER}                    ║"
-echo "║  🔑 Contraseña: ${SONAR_PASS}                   ║"
-echo "╚══════════════════════════════════════════════════╝"
+echo "=================================================="
+echo "  Configuracion de SonarQube completada"
+echo "  Dashboard: ${SONAR_URL}"
+echo "  Usuario:   ${SONAR_USER}"
+echo "  Contrasena: ${SONAR_PASS}"
+echo "=================================================="

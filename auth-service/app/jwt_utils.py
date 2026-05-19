@@ -9,7 +9,7 @@ MINUTOS_EXPIRACION_ACCESO = int(os.environ.get("ACCESS_TOKEN_EXPIRE_MINUTES", "6
 MINUTOS_EXPIRACION_RESET = int(os.environ.get("RESET_TOKEN_EXPIRE_MINUTES", "60"))
 
 
-def crear_token_acceso(nombre_usuario: str, rol: str) -> str:
+def crear_token_acceso(nombre_usuario: str, rol: str, empleado_id: int = None) -> str:
     """
     Genera un JWT de acceso con el nombre de usuario y el rol.
     Expira según MINUTOS_EXPIRACION_ACCESO (por defecto 60 min).
@@ -21,6 +21,8 @@ def crear_token_acceso(nombre_usuario: str, rol: str) -> str:
         "iat": int(ahora.timestamp()),
         "exp": int((ahora + timedelta(minutes=MINUTOS_EXPIRACION_ACCESO)).timestamp()),
     }
+    if empleado_id is not None:
+        payload["empleado_id"] = empleado_id
     return jwt.encode(payload, CLAVE_SECRETA, algorithm=ALGORITMO)
 
 

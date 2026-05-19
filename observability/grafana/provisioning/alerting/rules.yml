@@ -1,15 +1,17 @@
 apiVersion: 1
 
-# Reglas de alerta del ecosistema. Vigilan disponibilidad y errores 5xx
-# sobre las métricas que Prometheus raspa desde cada microservicio.
-# Usan pipeline Reduce + Math (no Classic Conditions) para preservar labels
-# por serie y que $labels.job esté disponible en las anotaciones.
 groups:
   - orgId: 1
     name: microservices-alerts
     folder: Alertas
     interval: 1m
     rules:
+
+      # ─────────────────────────────────────────────────────────────────────────
+      # ALERTA 1: Servicio completamente caído (probe_success = 0)
+      # Distingue entre caída de proceso vs degradación por BD/broker usando
+      # la métrica servicio_saludable expuesta por cada servicio.
+      # ─────────────────────────────────────────────────────────────────────────
       - uid: servicio-caido
         title: Servicio Caído (Health Check)
         condition: C
@@ -18,8 +20,6 @@ groups:
             relativeTimeRange: { from: 300, to: 0 }
             datasourceUid: prometheus-ds
             model:
-              # probe_success=0 → el /health del servicio no respondió 200
-              # Esto es más preciso que `up` porque verifica el estado real del servicio
               expr: probe_success{job=~"health-.*"}
               instant: false
               refId: A
@@ -45,13 +45,30 @@ groups:
         for: 1m
         annotations:
           summary: "Servicio caído: {{ $labels.servicio }}"
-          description: "El /health de {{ $labels.servicio }} lleva 1 minuto sin responder HTTP 200. Instancia: {{ $labels.instance }}"
+          description: |
+            /health de {{ $labels.servicio }} no responde HTTP 200.
+            Instancia: {{ $labels.instance }}
+
+            CAUSA PROBABLE:
+            - Si la alerta "BD o Broker Caído" también está activa para este servicio
+              → la BD o RabbitMQ cayeron (el proceso sigue en pie pero degradado).
+            - Si solo esta alerta está activa
+              → el contenedor se cayó o no puede recibir conexiones.
+              Acción: docker-compose ps && docker-compose logs {{ $labels.servicio }}
+            - Logs en Loki: {servicio="{{ $labels.servicio }}"} | level="ERROR"
+          runbook_url: "http://localhost:3001/d/microservices-obs"
         labels:
           severity: critical
         isPaused: false
 
+      # ─────────────────────────────────────────────────────────────────────────
+      # ALERTA 2: BD o Broker caído (servicio_saludable = 0)
+      # Esta métrica es una gauge que cada servicio actualiza cada 30s.
+      # Cuando cae a 0 significa que la BD o el broker no responden.
+      # Dispara ANTES de que probe_success llegue a 0 (es la causa raíz).
+      # ─────────────────────────────────────────────────────────────────────────
       - uid: bd-caida
-        title: Base de Datos Caída
+        title: Base de Datos o Broker Caído
         condition: C
         data:
           - refId: A
@@ -82,12 +99,83 @@ groups:
         execErrState: Alerting
         for: 1m
         annotations:
-          summary: "Base de datos caída en: {{ $labels.job }}"
-          description: "El servicio {{ $labels.job }} detectó que su base de datos lleva 1 minuto sin responder."
+          summary: "Dependencia caída en: {{ $labels.service }}"
+          description: |
+            El servicio {{ $labels.service }} detectó que su BD o broker llevan 1 minuto sin responder.
+            Esto es la CAUSA RAÍZ — el servicio mismo puede seguir en pie pero degradado.
+
+            IMPACTO ESPERADO EN CASCADA:
+            - auth-service BD caída → usuarios no pueden loguearse → todos los servicios
+              protegidos por JWT dejan de funcionar para nuevas sesiones.
+            - empleados-service BD caída → CRUD de empleados falla con 503.
+            - RabbitMQ caído → onboarding, vacaciones y notificaciones no se procesan.
+
+            ACCIÓN: Verificar el contenedor de la BD o RabbitMQ con:
+              docker-compose logs db-{{ $labels.service }}
+              docker-compose logs rabbitmq
         labels:
           severity: critical
         isPaused: false
 
+      # ─────────────────────────────────────────────────────────────────────────
+      # ALERTA 3: Cascada de servicios (2 o más servicios caídos a la vez)
+      # Cuando varios servicios caen simultáneamente la causa es sistémica:
+      # RabbitMQ caído, red interna rota, o reinicio del host Docker.
+      # ─────────────────────────────────────────────────────────────────────────
+      - uid: cascada-servicios
+        title: Cascada — Múltiples Servicios Caídos
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange: { from: 120, to: 0 }
+            datasourceUid: prometheus-ds
+            model:
+              expr: count(probe_success{job=~"health-.*"} == 0)
+              instant: false
+              refId: A
+          - refId: B
+            relativeTimeRange: { from: 120, to: 0 }
+            datasourceUid: "-100"
+            model:
+              datasource: { type: __expr__, uid: "-100" }
+              expression: A
+              reducer: last
+              refId: B
+              type: reduce
+          - refId: C
+            relativeTimeRange: { from: 120, to: 0 }
+            datasourceUid: "-100"
+            model:
+              datasource: { type: __expr__, uid: "-100" }
+              expression: $B >= 2
+              refId: C
+              type: math
+        noDataState: OK
+        execErrState: OK
+        for: 2m
+        annotations:
+          summary: "Cascada detectada: {{ $values.B }} servicios caídos simultáneamente"
+          description: |
+            HAY {{ $values.B }} SERVICIOS CAÍDOS AL MISMO TIEMPO.
+
+            Causas probables cuando múltiples servicios fallan juntos:
+            1. RabbitMQ caído → los servicios que dependen del broker fallan su /health.
+            2. Reinicio del host Docker → todos los contenedores reinician.
+            3. Red interna del compose rota → los servicios no pueden comunicarse entre sí.
+            4. Disco lleno → las BDs dejan de escribir.
+
+            Verificar inmediatamente:
+              docker-compose ps
+              docker-compose logs rabbitmq | tail -20
+              docker stats --no-stream
+        labels:
+          severity: critical
+        isPaused: false
+
+      # ─────────────────────────────────────────────────────────────────────────
+      # ALERTA 4: Alta tasa de errores 5xx (>10% durante 1 minuto)
+      # Se dispara por servicio, con el handler específico que falla.
+      # ─────────────────────────────────────────────────────────────────────────
       - uid: alta-tasa-errores
         title: Alta Tasa de Errores 5xx
         condition: C
@@ -125,8 +213,66 @@ groups:
         execErrState: Alerting
         for: 1m
         annotations:
-          summary: "Alta tasa de errores en: {{ $labels.job }}"
-          description: "El servicio {{ $labels.job }} supera el 10% de respuestas 5xx durante 1 minuto."
+          summary: "Errores 5xx en: {{ $labels.job }} ({{ $values.B | printf \"%.1f\" }}%)"
+          description: |
+            El servicio {{ $labels.job }} supera el 10% de respuestas 5xx durante 1 minuto.
+            Tasa actual: {{ $values.B | printf "%.1f" }}%
+
+            Para ver qué endpoint específico está fallando, consultar en Prometheus:
+              sum by (handler, status_code) (rate(http_requests_total{job="{{ $labels.job }}", status_code=~"5.."}[2m]))
+        labels:
+          severity: warning
+        isPaused: false
+
+      # ─────────────────────────────────────────────────────────────────────────
+      # ALERTA 5: Latencia p95 elevada (>2s durante 3 minutos)
+      # Detecta degradación de rendimiento antes de que el servicio caiga.
+      # ─────────────────────────────────────────────────────────────────────────
+      - uid: latencia-elevada
+        title: Latencia p95 Elevada (>2s)
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange: { from: 300, to: 0 }
+            datasourceUid: prometheus-ds
+            model:
+              expr: |
+                histogram_quantile(0.95,
+                  sum by (job, le) (rate(http_request_duration_seconds_bucket[5m]))
+                )
+              instant: false
+              refId: A
+          - refId: B
+            relativeTimeRange: { from: 300, to: 0 }
+            datasourceUid: "-100"
+            model:
+              datasource: { type: __expr__, uid: "-100" }
+              expression: A
+              reducer: last
+              refId: B
+              type: reduce
+          - refId: C
+            relativeTimeRange: { from: 300, to: 0 }
+            datasourceUid: "-100"
+            model:
+              datasource: { type: __expr__, uid: "-100" }
+              expression: $B > 2
+              refId: C
+              type: math
+        noDataState: OK
+        execErrState: OK
+        for: 3m
+        annotations:
+          summary: "Latencia alta en: {{ $labels.job }} (p95={{ $values.B | printf \"%.2f\" }}s)"
+          description: |
+            El percentil 95 de latencia en {{ $labels.job }} supera 2 segundos durante 3 minutos.
+            p95 actual: {{ $values.B | printf "%.2f" }}s
+
+            Causas comunes de alta latencia:
+            - BD con queries lentas (verificar índices).
+            - RabbitMQ congestionado (cola acumulada).
+            - Servicio upstream lento (revisar logs de dependencias).
+            - GC pressure en la JVM (si es departamentos-service).
         labels:
           severity: warning
         isPaused: false

@@ -120,10 +120,11 @@ async def startup_event():
         logger.error("Error al inicializar la base de datos", extra={"event": "db_init_error", "error": str(e)})
         sys.exit(1)
 
-    # Conectar a RabbitMQ de forma no bloqueante: si falla, el servicio sigue
-    # activo y reconectará automáticamente al intentar publicar un evento.
+    # Conectar a RabbitMQ y arrancar consumidor de eventos de vacaciones.
+    # Si falla, el servicio sigue activo y reconectará al publicar.
     try:
         await rabbitmq_client.connect()
+        await rabbitmq_client.iniciar_consumidor()
     except Exception as e:
         logger.warning("No se pudo conectar a RabbitMQ al arrancar. Se reintentará al publicar.", extra={"event": "rabbitmq_init_warning", "error": str(e)})
 
