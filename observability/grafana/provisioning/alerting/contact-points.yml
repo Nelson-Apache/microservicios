@@ -14,5 +14,9 @@ contactPoints:
           url: ${GF_DISCORD_WEBHOOK_URL}
           use_discord_username: false
           message: |
-            🚨 **Alerta**: {{ .CommonAnnotations.summary }}
-            📋 **Descripción**: {{ .CommonAnnotations.description }}
+            {{- range .Alerts }}
+            {{ if eq .Status "firing" }}🚨{{ else }}✅{{ end }} **{{ .Annotations.summary }}**
+            {{- end }}
+            {{ if .CommonAnnotations.description }}
+            {{ .CommonAnnotations.description }}
+            {{- end }}

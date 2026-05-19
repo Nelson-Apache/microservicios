@@ -46,14 +46,16 @@ groups:
         annotations:
           summary: "Servicio caído: {{ $labels.servicio }}"
           description: |
-            El endpoint /health de {{ $labels.servicio }} lleva 1 minuto sin responder HTTP 200.
+            /health de {{ $labels.servicio }} no responde HTTP 200.
             Instancia: {{ $labels.instance }}
 
-            DIAGNÓSTICO RÁPIDO:
-            1. Si la alerta "Base de Datos o Broker Caído" también está activa para este servicio
-               → la causa es la dependencia (BD o RabbitMQ), no el proceso en sí.
-            2. Si solo esta alerta está activa → el proceso del servicio se cayó o no inicia.
-            3. Verificar logs en Loki: {servicio="{{ $labels.servicio }}"} | level="ERROR"
+            CAUSA PROBABLE:
+            - Si la alerta "BD o Broker Caído" también está activa para este servicio
+              → la BD o RabbitMQ cayeron (el proceso sigue en pie pero degradado).
+            - Si solo esta alerta está activa
+              → el contenedor se cayó o no puede recibir conexiones.
+              Acción: docker-compose ps && docker-compose logs {{ $labels.servicio }}
+            - Logs en Loki: {servicio="{{ $labels.servicio }}"} | level="ERROR"
           runbook_url: "http://localhost:3001/d/microservices-obs"
         labels:
           severity: critical
