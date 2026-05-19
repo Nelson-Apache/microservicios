@@ -2,28 +2,29 @@
   "id": null,
   "uid": "microservices-obs",
   "title": "Microservicios — Observabilidad",
-  "description": "Dashboard operativo del ecosistema: estado, tráfico, latencia y errores por servicio.",
+  "description": "Estado, tráfico, latencia, errores y análisis de endpoints por servicio.",
   "tags": ["microservicios", "observabilidad"],
   "timezone": "browser",
   "schemaVersion": 38,
-  "version": 1,
+  "version": 2,
   "refresh": "30s",
-  "time": { "from": "now-15m", "to": "now" },
+  "time": { "from": "now-30m", "to": "now" },
   "panels": [
+
     {
       "id": 1,
       "type": "row",
-      "title": "Resumen del Sistema",
-      "description": "Agrupa los paneles que muestran el estado general de cada microservicio.",
+      "title": "Estado del Sistema",
       "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 },
       "collapsed": false
     },
+
     {
       "id": 2,
       "type": "stat",
-      "title": "Estado de Servicios",
-      "description": "Verde = UP | Rojo = DOWN",
-      "gridPos": { "h": 6, "w": 24, "x": 0, "y": 1 },
+      "title": "Estado Actual de Servicios",
+      "description": "Verde = /health responde HTTP 200 | Rojo = /health no responde o retorna error",
+      "gridPos": { "h": 4, "w": 24, "x": 0, "y": 1 },
       "options": {
         "reduceOptions": { "calcs": ["lastNotNull"] },
         "orientation": "horizontal",
@@ -34,13 +35,13 @@
       "fieldConfig": {
         "defaults": {
           "mappings": [
-            { "type": "value", "options": { "0": { "text": "DOWN", "color": "red", "index": 0 } } },
-            { "type": "value", "options": { "1": { "text": "UP", "color": "green", "index": 1 } } }
+            { "type": "value", "options": { "0": { "text": "DOWN", "color": "red",   "index": 0 } } },
+            { "type": "value", "options": { "1": { "text": "UP",   "color": "green", "index": 1 } } }
           ],
           "thresholds": {
             "mode": "absolute",
             "steps": [
-              { "color": "red", "value": null },
+              { "color": "red",   "value": null },
               { "color": "green", "value": 1 }
             ]
           },
@@ -48,32 +49,155 @@
         }
       },
       "targets": [
-        { "datasource": { "uid": "prometheus-ds" }, "expr": "probe_success{job=\"health-api-gateway\"}", "legendFormat": "api-gateway", "refId": "A" },
-        { "datasource": { "uid": "prometheus-ds" }, "expr": "probe_success{job=\"health-auth-service\"}", "legendFormat": "auth-service", "refId": "B" },
-        { "datasource": { "uid": "prometheus-ds" }, "expr": "probe_success{job=\"health-empleados-service\"}", "legendFormat": "empleados-service", "refId": "C" },
+        { "datasource": { "uid": "prometheus-ds" }, "expr": "probe_success{job=\"health-api-gateway\"}",          "legendFormat": "api-gateway",          "refId": "A" },
+        { "datasource": { "uid": "prometheus-ds" }, "expr": "probe_success{job=\"health-auth-service\"}",         "legendFormat": "auth-service",         "refId": "B" },
+        { "datasource": { "uid": "prometheus-ds" }, "expr": "probe_success{job=\"health-empleados-service\"}",    "legendFormat": "empleados-service",    "refId": "C" },
         { "datasource": { "uid": "prometheus-ds" }, "expr": "probe_success{job=\"health-departamentos-service\"}", "legendFormat": "departamentos-service", "refId": "D" },
-        { "datasource": { "uid": "prometheus-ds" }, "expr": "probe_success{job=\"health-notificaciones-service\"}", "legendFormat": "notificaciones-service", "refId": "E" },
-        { "datasource": { "uid": "prometheus-ds" }, "expr": "probe_success{job=\"health-perfiles-service\"}", "legendFormat": "perfiles-service", "refId": "F" },
-        { "datasource": { "uid": "prometheus-ds" }, "expr": "probe_success{job=\"health-reportes-service\"}", "legendFormat": "reportes-service", "refId": "G" },
-        { "datasource": { "uid": "prometheus-ds" }, "expr": "probe_success{job=\"health-vacaciones-service\"}", "legendFormat": "vacaciones-service", "refId": "H" }
+        { "datasource": { "uid": "prometheus-ds" }, "expr": "probe_success{job=\"health-notificaciones-service\"}","legendFormat": "notificaciones-service","refId": "E" },
+        { "datasource": { "uid": "prometheus-ds" }, "expr": "probe_success{job=\"health-perfiles-service\"}",     "legendFormat": "perfiles-service",     "refId": "F" },
+        { "datasource": { "uid": "prometheus-ds" }, "expr": "probe_success{job=\"health-reportes-service\"}",     "legendFormat": "reportes-service",     "refId": "G" },
+        { "datasource": { "uid": "prometheus-ds" }, "expr": "probe_success{job=\"health-vacaciones-service\"}",   "legendFormat": "vacaciones-service",   "refId": "H" }
       ]
     },
+
     {
       "id": 3,
+      "type": "state-timeline",
+      "title": "Historial de Disponibilidad — Últimos 30 min",
+      "description": "Muestra exactamente cuándo cada servicio estuvo UP/DOWN. Permite ver si las caídas fueron simultáneas (problema sistémico) o individuales (problema de servicio).",
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 5 },
+      "options": {
+        "mergeValues": true,
+        "showValue": "never",
+        "alignValue": "left",
+        "rowHeight": 0.85,
+        "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true },
+        "tooltip": { "mode": "single", "sort": "none" }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            { "type": "value", "options": { "0": { "text": "DOWN", "color": "red"   } } },
+            { "type": "value", "options": { "1": { "text": "UP",   "color": "green" } } }
+          ],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "red",   "value": null },
+              { "color": "green", "value": 1 }
+            ]
+          },
+          "custom": { "lineWidth": 0, "fillOpacity": 70 }
+        }
+      },
+      "targets": [
+        { "datasource": { "uid": "prometheus-ds" }, "expr": "probe_success{job=\"health-api-gateway\"}",          "legendFormat": "api-gateway",          "refId": "A" },
+        { "datasource": { "uid": "prometheus-ds" }, "expr": "probe_success{job=\"health-auth-service\"}",         "legendFormat": "auth-service",         "refId": "B" },
+        { "datasource": { "uid": "prometheus-ds" }, "expr": "probe_success{job=\"health-empleados-service\"}",    "legendFormat": "empleados-service",    "refId": "C" },
+        { "datasource": { "uid": "prometheus-ds" }, "expr": "probe_success{job=\"health-departamentos-service\"}", "legendFormat": "departamentos-service", "refId": "D" },
+        { "datasource": { "uid": "prometheus-ds" }, "expr": "probe_success{job=\"health-notificaciones-service\"}","legendFormat": "notificaciones-service","refId": "E" },
+        { "datasource": { "uid": "prometheus-ds" }, "expr": "probe_success{job=\"health-perfiles-service\"}",     "legendFormat": "perfiles-service",     "refId": "F" },
+        { "datasource": { "uid": "prometheus-ds" }, "expr": "probe_success{job=\"health-vacaciones-service\"}",   "legendFormat": "vacaciones-service",   "refId": "G" }
+      ]
+    },
+
+    {
+      "id": 10,
       "type": "row",
-      "title": "Comportamiento del Tráfico",
-      "description": "Agrupa las métricas de solicitudes, latencia y errores HTTP.",
-      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 7 },
+      "title": "Diagnóstico de Causa Raíz",
+      "description": "BD y broker: la causa raíz antes de que probe_success llegue a 0.",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 13 },
       "collapsed": false
     },
+
     {
-      "id": 4,
+      "id": 11,
+      "type": "stat",
+      "title": "BD y Broker por Servicio",
+      "description": "Gauge que cada servicio actualiza cada 30s. 0 = BD o broker caído (CAUSA RAÍZ). Este panel se pone rojo ANTES de que el servicio deje de responder al /health.",
+      "gridPos": { "h": 6, "w": 12, "x": 0, "y": 14 },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "orientation": "horizontal",
+        "textMode": "auto",
+        "colorMode": "background",
+        "graphMode": "none"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            { "type": "value", "options": { "0": { "text": "BD/BROKER CAÍDO", "color": "red",    "index": 0 } } },
+            { "type": "value", "options": { "1": { "text": "OK",              "color": "green",  "index": 1 } } }
+          ],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "red",   "value": null },
+              { "color": "green", "value": 1 }
+            ]
+          }
+        }
+      },
+      "targets": [
+        {
+          "datasource": { "uid": "prometheus-ds" },
+          "expr": "servicio_saludable",
+          "legendFormat": "{{ service }}",
+          "refId": "A"
+        }
+      ]
+    },
+
+    {
+      "id": 12,
       "type": "timeseries",
-      "title": "Tasa de Peticiones por Servicio (req/s)",
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "title": "Duración del Health Probe (ms)",
+      "description": "Tiempo que tarda el blackbox en recibir respuesta de /health. Si sube antes de que probe_success llegue a 0, el servicio estaba degradado antes de caer completamente.",
+      "gridPos": { "h": 6, "w": 12, "x": 12, "y": 14 },
       "options": {
         "tooltip": { "mode": "multi" },
         "legend": { "displayMode": "table", "placement": "bottom" }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms",
+          "custom": { "lineWidth": 2, "fillOpacity": 10 },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green",  "value": null },
+              { "color": "yellow", "value": 500 },
+              { "color": "red",    "value": 2000 }
+            ]
+          }
+        }
+      },
+      "targets": [
+        {
+          "datasource": { "uid": "prometheus-ds" },
+          "expr": "probe_duration_seconds{job=~\"health-.*\"} * 1000",
+          "legendFormat": "{{ servicio }}",
+          "refId": "A"
+        }
+      ]
+    },
+
+    {
+      "id": 20,
+      "type": "row",
+      "title": "Comportamiento del Tráfico",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 20 },
+      "collapsed": false
+    },
+
+    {
+      "id": 21,
+      "type": "timeseries",
+      "title": "Tasa de Peticiones por Servicio (req/s)",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 21 },
+      "options": {
+        "tooltip": { "mode": "multi" },
+        "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"] }
       },
       "fieldConfig": {
         "defaults": {
@@ -96,14 +220,16 @@
         }
       ]
     },
+
     {
-      "id": 5,
+      "id": 22,
       "type": "timeseries",
-      "title": "Latencia Promedio por Servicio (s)",
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+      "title": "Latencia — p50 y p95 por Servicio",
+      "description": "p50 = mediana, p95 = lo que experimenta el 95% peor de los usuarios. Si p95 sube pero p50 no, hay endpoints específicos lentos.",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 21 },
       "options": {
         "tooltip": { "mode": "multi" },
-        "legend": { "displayMode": "table", "placement": "bottom" }
+        "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"] }
       },
       "fieldConfig": {
         "defaults": {
@@ -112,9 +238,9 @@
           "thresholds": {
             "mode": "absolute",
             "steps": [
-              { "color": "green", "value": null },
+              { "color": "green",  "value": null },
               { "color": "yellow", "value": 1 },
-              { "color": "red", "value": 2 }
+              { "color": "red",    "value": 2 }
             ]
           }
         }
@@ -122,48 +248,217 @@
       "targets": [
         {
           "datasource": { "uid": "prometheus-ds" },
-          "expr": "sum by (job) (rate(http_request_duration_seconds_sum[1m])) / sum by (job) (rate(http_request_duration_seconds_count[1m]))",
-          "legendFormat": "{{job}}",
+          "expr": "histogram_quantile(0.50, sum by (job, le) (rate(http_request_duration_seconds_bucket[2m])))",
+          "legendFormat": "p50 — {{job}}",
           "refId": "A"
         },
         {
           "datasource": { "uid": "prometheus-ds" },
-          "expr": "sum by (job) (rate(http_server_requests_seconds_sum[1m])) / sum by (job) (rate(http_server_requests_seconds_count[1m]))",
-          "legendFormat": "{{job}} (java)",
+          "expr": "histogram_quantile(0.95, sum by (job, le) (rate(http_request_duration_seconds_bucket[2m])))",
+          "legendFormat": "p95 — {{job}}",
           "refId": "B"
+        },
+        {
+          "datasource": { "uid": "prometheus-ds" },
+          "expr": "histogram_quantile(0.95, sum by (job, le) (rate(http_server_requests_seconds_bucket[2m])))",
+          "legendFormat": "p95 — {{job}} (java)",
+          "refId": "C"
         }
       ]
     },
+
     {
-      "id": 6,
+      "id": 30,
+      "type": "row",
+      "title": "Análisis de Endpoints",
+      "description": "Desglosa el comportamiento por endpoint individual: qué rutas fallan, cuáles son lentas.",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 29 },
+      "collapsed": false
+    },
+
+    {
+      "id": 31,
       "type": "timeseries",
-      "title": "Errores HTTP 4xx y 5xx por Servicio",
-      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 16 },
+      "title": "Tasa de Éxito por Endpoint (%)",
+      "description": "100% = todos los requests al endpoint terminaron en 2xx. Si baja, ese endpoint específico está fallando. Permite localizar el problema sin ver todos los logs.",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 30 },
       "options": {
         "tooltip": { "mode": "multi" },
-        "legend": { "displayMode": "table", "placement": "bottom" }
+        "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["mean", "min"] }
       },
       "fieldConfig": {
         "defaults": {
-          "unit": "reqps",
-          "custom": { "lineWidth": 2, "fillOpacity": 20 },
-          "color": { "mode": "palette-classic" }
+          "unit": "percent",
+          "min": 0,
+          "max": 100,
+          "custom": { "lineWidth": 2, "fillOpacity": 10 },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "red",    "value": null },
+              { "color": "yellow", "value": 90 },
+              { "color": "green",  "value": 99 }
+            ]
+          }
         }
       },
       "targets": [
         {
           "datasource": { "uid": "prometheus-ds" },
-          "expr": "sum by (job, status_code) (rate(http_requests_total{status_code=~\"[45]..\"}[1m]))",
-          "legendFormat": "{{job}} — {{status_code}}",
+          "expr": "(\n  sum by (handler, job) (rate(http_requests_total{status_code=~\"2..\"}[2m]))\n  /\n  sum by (handler, job) (rate(http_requests_total[2m]))\n) * 100",
+          "legendFormat": "{{job}} — {{handler}}",
+          "refId": "A"
+        }
+      ]
+    },
+
+    {
+      "id": 32,
+      "type": "timeseries",
+      "title": "p95 Latencia por Endpoint (s)",
+      "description": "Latencia del percentil 95 desglosada por ruta. Identifica qué endpoint específico está siendo lento incluso cuando el servicio general parece OK.",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 30 },
+      "options": {
+        "tooltip": { "mode": "multi" },
+        "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"] }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": { "lineWidth": 2, "fillOpacity": 10 },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green",  "value": null },
+              { "color": "yellow", "value": 0.5 },
+              { "color": "red",    "value": 2 }
+            ]
+          }
+        }
+      },
+      "targets": [
+        {
+          "datasource": { "uid": "prometheus-ds" },
+          "expr": "histogram_quantile(0.95,\n  sum by (handler, job, le) (rate(http_request_duration_seconds_bucket[5m]))\n)",
+          "legendFormat": "{{job}} — {{handler}}",
+          "refId": "A"
+        }
+      ]
+    },
+
+    {
+      "id": 33,
+      "type": "timeseries",
+      "title": "Errores HTTP por Endpoint y Código",
+      "description": "Qué endpoint específico devuelve 4xx o 5xx y con qué código. 401/403 = problema de autenticación/autorización. 500/503 = error de aplicación o dependencia caída.",
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 38 },
+      "options": {
+        "tooltip": { "mode": "multi" },
+        "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["sum"] }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "custom": { "lineWidth": 2, "fillOpacity": 20 }
+        }
+      },
+      "targets": [
+        {
+          "datasource": { "uid": "prometheus-ds" },
+          "expr": "sum by (job, handler, status_code) (rate(http_requests_total{status_code=~\"[45]..\"}[1m]))",
+          "legendFormat": "{{job}} — {{handler}} [{{status_code}}]",
           "refId": "A"
         },
         {
           "datasource": { "uid": "prometheus-ds" },
-          "expr": "sum by (job, status) (rate(http_server_requests_seconds_count{status=~\"[45]..\"}[1m]))",
-          "legendFormat": "{{job}} — {{status}} (java)",
+          "expr": "sum by (job, uri, status) (rate(http_server_requests_seconds_count{status=~\"[45]..\"}[1m]))",
+          "legendFormat": "{{job}} — {{uri}} [{{status}}] (java)",
           "refId": "B"
         }
       ]
+    },
+
+    {
+      "id": 40,
+      "type": "row",
+      "title": "Volumen de Requests por Endpoint",
+      "description": "Distribución de tráfico: qué endpoints reciben más carga.",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 46 },
+      "collapsed": false
+    },
+
+    {
+      "id": 41,
+      "type": "bargauge",
+      "title": "Top Endpoints por Volumen (req/s)",
+      "description": "Los endpoints con más tráfico en los últimos 5 minutos. Útil para priorizar optimizaciones y entender el patrón de uso real.",
+      "gridPos": { "h": 10, "w": 12, "x": 0, "y": 47 },
+      "options": {
+        "reduceOptions": { "calcs": ["mean"] },
+        "orientation": "horizontal",
+        "displayMode": "gradient",
+        "showUnfilled": true
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "blue",   "value": null },
+              { "color": "green",  "value": 0.1 },
+              { "color": "yellow", "value": 1 },
+              { "color": "red",    "value": 10 }
+            ]
+          }
+        }
+      },
+      "targets": [
+        {
+          "datasource": { "uid": "prometheus-ds" },
+          "expr": "topk(15, sum by (handler, job) (rate(http_requests_total[5m])))",
+          "legendFormat": "{{job}} — {{handler}}",
+          "refId": "A"
+        }
+      ]
+    },
+
+    {
+      "id": 42,
+      "type": "bargauge",
+      "title": "Top Endpoints con Mayor Error Rate",
+      "description": "Endpoints con mayor proporción de errores 4xx+5xx. El peor endpoint suele ser el punto de inicio de una incidencia.",
+      "gridPos": { "h": 10, "w": 12, "x": 12, "y": 47 },
+      "options": {
+        "reduceOptions": { "calcs": ["mean"] },
+        "orientation": "horizontal",
+        "displayMode": "gradient",
+        "showUnfilled": true
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "min": 0,
+          "max": 100,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green",  "value": null },
+              { "color": "yellow", "value": 5 },
+              { "color": "red",    "value": 20 }
+            ]
+          }
+        }
+      },
+      "targets": [
+        {
+          "datasource": { "uid": "prometheus-ds" },
+          "expr": "topk(15,\n  (\n    sum by (handler, job) (rate(http_requests_total{status_code=~\"[45]..\"}[5m]))\n    /\n    sum by (handler, job) (rate(http_requests_total[5m]))\n  ) * 100\n)",
+          "legendFormat": "{{job}} — {{handler}}",
+          "refId": "A"
+        }
+      ]
     }
+
   ]
 }

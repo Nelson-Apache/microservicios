@@ -125,7 +125,7 @@ async def iniciar_sesion(
             detail="Usuario inhabilitado. Contacte al administrador.",
         )
 
-    token = crear_token_acceso(usuario.nombre_usuario, usuario.rol)
+    token = crear_token_acceso(usuario.nombre_usuario, usuario.rol, usuario.empleado_id)
     logger.info(
         f"Login exitoso",
         extra={"evento": "login_exitoso", "usuario": usuario.nombre_usuario, "rol": usuario.rol}

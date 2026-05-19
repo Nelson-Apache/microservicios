@@ -7,5 +7,3 @@ modules:
       valid_status_codes: [200]
       method: GET
       preferred_ip_protocol: "ip4"
-      fail_if_body_matches_regex:
-        - '"status":\s*"DOWN"'

@@ -207,8 +207,76 @@ class _ErrorHTTP(Exception):
 
 @app.get("/health", tags=["Gateway"], summary="Health check del gateway")
 async def verificar_salud():
-    """Verifica que el API Gateway está operativo."""
-    return {"status": "UP", "service": "api-gateway", "version": "1.0.0"}
+    """
+    Verifica el estado del API Gateway y de los microservicios backend.
+    Retorna 200 si el gateway está operativo (aunque algún backend esté caído).
+    """
+    verificaciones = {}
+    async with httpx.AsyncClient(timeout=3.0) as cliente:
+        tareas = {
+            nombre: cliente.get(f"{url}/health")
+            for nombre, url in SERVICIOS.items()
+        }
+        resultados = await asyncio.gather(*tareas.values(), return_exceptions=True)
+
+    for nombre, resultado in zip(tareas.keys(), resultados):
+        if isinstance(resultado, Exception):
+            verificaciones[nombre] = "DOWN"
+        else:
+            verificaciones[nombre] = "UP" if resultado.status_code < 500 else "DOWN"
+
+    return {
+        "status": "UP",
+        "service": "api-gateway",
+        "version": "1.0.0",
+        "checks": verificaciones,
+    }
+
+
+@app.put(
+    "/profile",
+    tags=["Perfil"],
+    summary="Actualizar el perfil del empleado autenticado",
+)
+async def actualizar_mi_perfil(request: Request):
+    """
+    Permite al empleado autenticado actualizar su propio perfil.
+    Extrae el empleado_id del JWT y reenvía la petición a perfiles-service.
+    """
+    try:
+        payload = validar_y_obtener_payload(request.headers.get("Authorization"))
+    except _ErrorHTTP as error_http:
+        return error_http.respuesta
+
+    empleado_id = payload.get("empleado_id")
+    if not empleado_id:
+        return JSONResponse(
+            status_code=400,
+            content={"error": "El usuario autenticado no tiene un empleado vinculado."},
+        )
+
+    cabeceras = {
+        k: v for k, v in request.headers.items()
+        if k.lower() not in ("host", "content-length", "transfer-encoding")
+    }
+    cuerpo = await request.body()
+    url_destino = f"{SERVICIOS['perfiles']}/perfiles/{empleado_id}"
+
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as cliente:
+            respuesta = await cliente.put(url_destino, headers=cabeceras, content=cuerpo)
+        cabeceras_respuesta = {
+            k: v for k, v in respuesta.headers.items()
+            if k.lower() not in ("transfer-encoding", "content-encoding")
+        }
+        return Response(
+            content=respuesta.content,
+            status_code=respuesta.status_code,
+            headers=cabeceras_respuesta,
+            media_type=respuesta.headers.get("content-type"),
+        )
+    except httpx.ConnectError:
+        return JSONResponse(status_code=503, content={"error": "perfiles-service no disponible."})
 
 
 @app.get(

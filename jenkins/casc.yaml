@@ -56,7 +56,7 @@ jobs:
                 remote {
                   url('https://github.com/Nelson-Apache/microservicios.git')
                 }
-                branches('*/felipe')
+                branches('*/master')
               }
             }
             scriptPath('notificaciones-service/Jenkinsfile')
@@ -86,10 +86,190 @@ jobs:
                 remote {
                   url('https://github.com/Nelson-Apache/microservicios.git')
                 }
-                branches('*/felipe')
+                branches('*/master')
               }
             }
             scriptPath('departamentos-service/Jenkinsfile')
+            lightweight(true)
+          }
+        }
+
+        triggers {
+          scm('H/5 * * * *')
+        }
+
+        properties {
+          disableConcurrentBuilds()
+        }
+      }
+
+  # Pipeline para api-gateway (Python / FastAPI)
+  - script: |
+      pipelineJob('api-gateway-pipeline') {
+        displayName('API Gateway Pipeline (Python/FastAPI)')
+        description('Pipeline CI para api-gateway — Python 3.11 / FastAPI')
+
+        definition {
+          cpsScm {
+            scm {
+              git {
+                remote {
+                  url('https://github.com/Nelson-Apache/microservicios.git')
+                }
+                branches('*/master')
+              }
+            }
+            scriptPath('api-gateway/Jenkinsfile')
+            lightweight(true)
+          }
+        }
+
+        triggers {
+          scm('H/5 * * * *')
+        }
+
+        properties {
+          disableConcurrentBuilds()
+        }
+      }
+
+  # Pipeline para auth-service (Python / FastAPI)
+  - script: |
+      pipelineJob('auth-service-pipeline') {
+        displayName('Auth Service Pipeline (Python/FastAPI)')
+        description('Pipeline CI para auth-service — Python 3.11 / FastAPI')
+
+        definition {
+          cpsScm {
+            scm {
+              git {
+                remote {
+                  url('https://github.com/Nelson-Apache/microservicios.git')
+                }
+                branches('*/master')
+              }
+            }
+            scriptPath('auth-service/Jenkinsfile')
+            lightweight(true)
+          }
+        }
+
+        triggers {
+          scm('H/5 * * * *')
+        }
+
+        properties {
+          disableConcurrentBuilds()
+        }
+      }
+
+  # Pipeline para empleados-service (Python / FastAPI)
+  - script: |
+      pipelineJob('empleados-service-pipeline') {
+        displayName('Empleados Service Pipeline (Python/FastAPI)')
+        description('Pipeline CI para empleados-service — Python 3.11 / FastAPI')
+
+        definition {
+          cpsScm {
+            scm {
+              git {
+                remote {
+                  url('https://github.com/Nelson-Apache/microservicios.git')
+                }
+                branches('*/master')
+              }
+            }
+            scriptPath('empleados-service/Jenkinsfile')
+            lightweight(true)
+          }
+        }
+
+        triggers {
+          scm('H/5 * * * *')
+        }
+
+        properties {
+          disableConcurrentBuilds()
+        }
+      }
+
+  # Pipeline para perfiles-service (Node.js / Express)
+  - script: |
+      pipelineJob('perfiles-service-pipeline') {
+        displayName('Perfiles Service Pipeline (Node.js/Express)')
+        description('Pipeline CI para perfiles-service — Node.js 18 / Express')
+
+        definition {
+          cpsScm {
+            scm {
+              git {
+                remote {
+                  url('https://github.com/Nelson-Apache/microservicios.git')
+                }
+                branches('*/master')
+              }
+            }
+            scriptPath('perfiles-service/Jenkinsfile')
+            lightweight(true)
+          }
+        }
+
+        triggers {
+          scm('H/5 * * * *')
+        }
+
+        properties {
+          disableConcurrentBuilds()
+        }
+      }
+
+  # Pipeline para vacaciones-service (Python / FastAPI)
+  - script: |
+      pipelineJob('vacaciones-service-pipeline') {
+        displayName('Vacaciones Service Pipeline (Python/FastAPI)')
+        description('Pipeline CI para vacaciones-service — Python 3.11 / FastAPI')
+
+        definition {
+          cpsScm {
+            scm {
+              git {
+                remote {
+                  url('https://github.com/Nelson-Apache/microservicios.git')
+                }
+                branches('*/master')
+              }
+            }
+            scriptPath('vacaciones-service/Jenkinsfile')
+            lightweight(true)
+          }
+        }
+
+        triggers {
+          scm('H/5 * * * *')
+        }
+
+        properties {
+          disableConcurrentBuilds()
+        }
+      }
+
+  # Pipeline para reportes-service (Go)
+  - script: |
+      pipelineJob('reportes-service-pipeline') {
+        displayName('Reportes Service Pipeline (Go)')
+        description('Pipeline CI para reportes-service — Go 1.22')
+
+        definition {
+          cpsScm {
+            scm {
+              git {
+                remote {
+                  url('https://github.com/Nelson-Apache/microservicios.git')
+                }
+                branches('*/master')
+              }
+            }
+            scriptPath('reportes-service/Jenkinsfile')
             lightweight(true)
           }
         }

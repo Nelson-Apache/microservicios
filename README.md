@@ -27,7 +27,7 @@ Cliente HTTP (Postman / curl / Swagger UI)
        │ Consume  │  departamentos-service :8081 (Java)      │
        │ Publica  │  notificaciones-service :3002 (Node.js)  │
        │          │  reportes-service     :8083 (Go)          │
-       │          │  perfiles-service     :3001 (Node.js)    │
+       │          │  perfiles-service     :3000 (Node.js)    │
        │          │  vacaciones-service   :8086 (Python)     │
        │          └──────────────────┬──────────────────────┘
        │                             │
@@ -87,7 +87,7 @@ vacaciones-service ──publica──►  vacaciones.programadas
 | `departamentos-service` | Java 17 / Spring Boot | **8081** | PostgreSQL (departamentosdb) | <http://localhost:8081/swagger-ui.html> |
 | `notificaciones-service` | Node.js / Express | **3002** | PostgreSQL (notificacionesdb) | <http://localhost:3002/api-docs> |
 | `reportes-service` | Go / net-http | **8083** | — | <http://localhost:8083/docs/index.html> |
-| `perfiles-service` | Node.js / Express | **3001** | PostgreSQL (perfilesdb) | <http://localhost:3001/api-docs> |
+| `perfiles-service` | Node.js / Express | **3000** (interno, sin puerto host) | PostgreSQL (perfilesdb) | vía gateway: <http://localhost:8000/perfiles/> |
 | `vacaciones-service` | Python / FastAPI | **8086** | PostgreSQL (vacacionesdb) | <http://localhost:8086/docs> |
 | `rabbitmq` | RabbitMQ | 5672 / 15672 | — | <http://localhost:15672> |
 
@@ -234,7 +234,7 @@ curl http://localhost:8080/health          # Empleados
 curl http://localhost:8081/actuator/health # Departamentos
 curl http://localhost:3002/health          # Notificaciones
 curl http://localhost:8083/health          # Reportes
-curl http://localhost:3001/health          # Perfiles
+curl http://localhost:8000/perfiles/health  # Perfiles (vía gateway, sin puerto host directo)
 curl http://localhost:8086/health          # Vacaciones
 ```
 
@@ -547,7 +547,7 @@ Tipos de notificación registrados:
 | GET | `/reportes/resumen` | Resumen de empleados y departamentos | USER |
 | GET | `/health` | Estado del servicio y sus dependencias | No |
 
-### Perfiles Service (:3001)
+### Perfiles Service (interno :3000, acceso vía gateway :8000)
 
 | Método | Ruta | Descripción | Rol mínimo |
 | --- | --- | --- | --- |
@@ -728,7 +728,7 @@ Variables más importantes:
 | Herramienta | URL | Usuario | Contraseña |
 | --- | --- | --- | --- |
 | **Prometheus** | <http://localhost:9090> | — | — |
-| **Grafana** | <http://localhost:3001> | `admin` | `admin` |
+| **Grafana** | <http://localhost:3001> (**puerto 3001 del host, no perfiles-service**) | `admin` | `admin` |
 | **Loki** | <http://localhost:3100> | — | — |
 | **Zipkin** | <http://localhost:9411> | — | — |
 
