@@ -56,6 +56,8 @@ logger = logging.getLogger(__name__)
 
 def _configurar_trazabilidad(nombre_servicio: str) -> None:
     """Inicializa OpenTelemetry con exportador Zipkin."""
+    # Fallos de exportación a Zipkin son transitorios — no contaminan los logs de ERROR
+    logging.getLogger("opentelemetry.sdk.trace.export").setLevel(logging.WARNING)
     endpoint = os.environ.get("OTEL_EXPORTER_ZIPKIN_ENDPOINT", "http://zipkin:9411/api/v2/spans")
     recurso = Resource.create({"service.name": nombre_servicio})
     proveedor = TracerProvider(resource=recurso)
