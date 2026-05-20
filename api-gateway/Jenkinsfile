@@ -49,8 +49,10 @@ pipeline {
             }
             steps {
                 dir("${SERVICE_NAME}") {
-                    sh 'pip install --no-cache-dir -r requirements.txt -q'
-                    sh 'pytest --cov=. --cov-report=xml --cov-report=term-missing tests/ -v'
+                    sh '''
+                        pip install --no-cache-dir -r requirements.txt
+                        python -m pytest --cov=. --cov-report=xml --cov-report=term-missing tests/ -v
+                    '''
                 }
             }
         }
@@ -65,8 +67,10 @@ pipeline {
             }
             steps {
                 dir("${SERVICE_NAME}") {
-                    sh 'pip install --no-cache-dir coverage -q'
-                    sh 'coverage report --fail-under=70'
+                    sh '''
+                        pip install --no-cache-dir coverage
+                        python -m coverage report --fail-under=70
+                    '''
                 }
             }
         }
