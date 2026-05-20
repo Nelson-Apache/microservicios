@@ -13,7 +13,7 @@ pipeline {
         timestamps()
         ansiColor('xterm')
         disableConcurrentBuilds()
-        timeout(time: 30, unit: 'MINUTES')
+        timeout(time: 45, unit: 'MINUTES')
     }
 
     stages {
@@ -51,25 +51,7 @@ pipeline {
                 dir("${SERVICE_NAME}") {
                     sh '''
                         pip install --no-cache-dir -r requirements.txt
-                        python -m pytest --cov=app --cov-report=xml --cov-report=term-missing tests/ -v
-                    '''
-                }
-            }
-        }
-
-        stage('Quality Gate') {
-            agent {
-                docker {
-                    image 'python:3.11-slim'
-                    args '--network microservices-network'
-                    reuseNode true
-                }
-            }
-            steps {
-                dir("${SERVICE_NAME}") {
-                    sh '''
-                        pip install --no-cache-dir coverage
-                        python -m coverage report --fail-under=70
+                        python -m pytest --cov=app --cov-report=xml:coverage.xml --cov-report=term-missing tests/ -v
                     '''
                 }
             }
@@ -89,10 +71,31 @@ pipeline {
                                 -Dsonar.token=${sonarToken} \
                                 -Dsonar.projectKey=${SERVICE_NAME} \
                                 -Dsonar.projectName='Vacaciones Service' \
-                                -Dsonar.sources=. \
-                                -Dsonar.exclusions=tests/** \
-                                -Dsonar.python.coverage.reportPaths=coverage.xml
+                                -Dsonar.sources=/usr/src/app \
+                                -Dsonar.language=py \
+                                -Dsonar.exclusions=**/__pycache__/**,**/venv/** \
+                                -Dsonar.python.coverage.reportPaths=/usr/src/coverage.xml
                         """
+                    }
+                }
+            }
+        }
+
+        stage('Quality Gate') {
+            steps {
+                script {
+                    sleep(time: 15, unit: 'SECONDS')
+                    def qgResult = sh(
+                        script: """
+                            curl -s -u admin:admin123 \
+                                "${SONAR_HOST_URL}/api/qualitygates/project_status?projectKey=${SERVICE_NAME}" \
+                                | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['projectStatus']['status'])"
+                        """,
+                        returnStdout: true
+                    ).trim()
+                    echo "Resultado Quality Gate: ${qgResult}"
+                    if (qgResult != 'OK') {
+                        error "Quality Gate FALLIDO: cobertura no cumple el umbral minimo. Estado: ${qgResult}"
                     }
                 }
             }
@@ -108,6 +111,45 @@ pipeline {
                 }
             }
         }
+
+        stage('E2E Tests') {
+            steps {
+                script {
+                    try {
+                        def composeEnv = "COMPOSE_PROJECT_NAME=ci_${env.BUILD_NUMBER} GATEWAY_PORT=0 AUTH_SERVICE_PORT=0 RABBITMQ_PORT=0 RABBITMQ_WEB_PORT=0"
+                        sh """
+                            ${composeEnv} docker-compose -f docker-compose.yml up -d \
+                                db-auth database-empleados database-departamentos \
+                                database-notificaciones database-perfiles \
+                                rabbitmq
+                        """
+                        sh 'sleep 30'
+                        sh """
+                            ${composeEnv} docker-compose -f docker-compose.yml up -d \
+                                auth-service empleados-service departamentos-service \
+                                notificaciones-service perfiles-service reportes-service \
+                                api-gateway
+                        """
+                        sh 'sleep 60'
+                        sh "${composeEnv} docker-compose -f docker-compose.yml run --rm e2e-tests"
+                    } catch (Exception e) {
+                        echo "Fallo la etapa E2E: ${e.getMessage()}"
+                        throw e
+                    }
+                }
+            }
+            post {
+                always {
+                    cucumber(
+                        fileIncludePattern: 'e2e-tests/target/cucumber-reports/report.json',
+                        jsonReportDirectory: 'e2e-tests/target/cucumber-reports',
+                        reportTitle: 'Reporte E2E BDD — Cucumber',
+                        buildStatus: 'UNSTABLE'
+                    )
+                    sh "COMPOSE_PROJECT_NAME=ci_${env.BUILD_NUMBER} docker-compose -f docker-compose.yml down --remove-orphans || true"
+                }
+            }
+        }
     }
 
     post {
@@ -115,7 +157,10 @@ pipeline {
             echo "Pipeline de ${SERVICE_NAME} completado exitosamente."
         }
         failure {
-            echo "Pipeline de ${SERVICE_NAME} falló."
+            echo "Pipeline de ${SERVICE_NAME} fallo."
+        }
+        always {
+            cleanWs()
         }
     }
 }
