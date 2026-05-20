@@ -34,7 +34,11 @@ pipeline {
             }
             steps {
                 dir("${SERVICE_NAME}") {
-                    sh 'go build ./...'
+                    sh '''
+                        apk add --no-cache git
+                        go mod download
+                        go build ./...
+                    '''
                 }
             }
         }
@@ -73,19 +77,21 @@ pipeline {
         stage('SonarQube') {
             steps {
                 dir("${SERVICE_NAME}") {
-                    sh """
-                        docker run --rm \
-                            --network microservices-network \
-                            -v \$(pwd):/usr/src \
-                            sonarsource/sonar-scanner-cli \
-                            -Dsonar.host.url=${SONAR_HOST_URL} \
-                            -Dsonar.login=admin \
-                            -Dsonar.password=admin123 \
-                            -Dsonar.projectKey=${SERVICE_NAME} \
-                            -Dsonar.projectName='Reportes Service' \
-                            -Dsonar.sources=. \
-                            -Dsonar.exclusions=**/*_test.go
-                    """
+                    script {
+                        def sonarToken = sh(script: 'cat /var/jenkins_home/sonarqube-token 2>/dev/null || echo ""', returnStdout: true).trim()
+                        sh """
+                            docker run --rm \
+                                --network microservices-network \
+                                -v \$(pwd):/usr/src \
+                                sonarsource/sonar-scanner-cli \
+                                -Dsonar.host.url=${SONAR_HOST_URL} \
+                                -Dsonar.token=${sonarToken} \
+                                -Dsonar.projectKey=${SERVICE_NAME} \
+                                -Dsonar.projectName='Reportes Service' \
+                                -Dsonar.sources=. \
+                                -Dsonar.exclusions=**/*_test.go
+                        """
+                    }
                 }
             }
         }

@@ -77,25 +77,27 @@ pipeline {
             agent {
                 docker {
                     image 'sonarsource/sonar-scanner-cli:latest'
-                    args '--network microservices-network'
+                    args '--network microservices-network -v /var/jenkins_home:/var/jenkins_home:ro'
                     reuseNode true
                 }
             }
             steps {
                 dir("${SERVICE_NAME}") {
                     echo "🔍 Ejecutando análisis de SonarQube..."
-                    sh """
-                        sonar-scanner \
-                            -Dsonar.host.url=${SONAR_HOST_URL} \
-                            -Dsonar.login=admin \
-                            -Dsonar.password=admin123 \
-                            -Dsonar.projectKey=${SERVICE_NAME} \
-                            -Dsonar.projectName='Notificaciones Service' \
-                            -Dsonar.sources=src \
-                            -Dsonar.tests=tests \
-                            -Dsonar.javascript.lcov.reportPaths=coverage/lcov.info \
-                            -Dsonar.exclusions='**/node_modules/**,**/coverage/**'
-                    """
+                    script {
+                        def sonarToken = sh(script: 'cat /var/jenkins_home/sonarqube-token 2>/dev/null || echo ""', returnStdout: true).trim()
+                        sh """
+                            sonar-scanner \
+                                -Dsonar.host.url=${SONAR_HOST_URL} \
+                                -Dsonar.token=${sonarToken} \
+                                -Dsonar.projectKey=${SERVICE_NAME} \
+                                -Dsonar.projectName='Notificaciones Service' \
+                                -Dsonar.sources=src \
+                                -Dsonar.tests=tests \
+                                -Dsonar.javascript.lcov.reportPaths=coverage/lcov.info \
+                                -Dsonar.exclusions='**/node_modules/**,**/coverage/**'
+                        """
+                    }
                 }
             }
         }

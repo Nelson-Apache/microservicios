@@ -670,6 +670,9 @@ services:
     environment:
       - JAVA_OPTS=-Djenkins.install.runSetupWizard=false
       - CASC_JENKINS_CONFIG=/var/jenkins_home/casc.yaml
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4
     networks:
       - microservices-net
     restart: unless-stopped
@@ -748,6 +751,7 @@ services:
     command: sh -c "apk update -q && apk add --no-cache curl && sh /setup-sonarqube.sh"
     volumes:
       - ./jenkins/setup-sonarqube.sh:/setup-sonarqube.sh
+      - jenkins_data:/var/jenkins_home
     environment:
       - SONAR_URL=http://sonarqube:9000
       - SONAR_USER=admin
