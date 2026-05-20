@@ -81,7 +81,25 @@ curl -s -o /dev/null -u "${SONAR_USER}:${SONAR_PASS}" \
     -d "name=Jenkins&url=${JENKINS_URL}/sonarqube-webhook/"
 echo "  Webhook configurado: ${JENKINS_URL}/sonarqube-webhook/"
 
-# ─── 6. Crear los 8 proyectos y asignar el Quality Gate ───
+# ─── 6. Generar token para análisis CI ───
+echo ""
+echo "Generando token para análisis CI de SonarQube..."
+curl -s -o /dev/null -u "${SONAR_USER}:${SONAR_PASS}" \
+    -X POST "${SONAR_URL}/api/user_tokens/revoke" \
+    -d "login=${SONAR_USER}&name=jenkins-ci"
+TOKEN_JSON=$(curl -s -u "${SONAR_USER}:${SONAR_PASS}" \
+    -X POST "${SONAR_URL}/api/user_tokens/generate" \
+    -d "login=${SONAR_USER}&name=jenkins-ci&type=USER_TOKEN")
+SONAR_CI_TOKEN=$(echo "$TOKEN_JSON" | grep -o '"token":"[^"]*"' | cut -d'"' -f4)
+if [ -n "$SONAR_CI_TOKEN" ]; then
+    echo "$SONAR_CI_TOKEN" > /var/jenkins_home/sonarqube-token
+    chmod 644 /var/jenkins_home/sonarqube-token
+    echo "  Token guardado en /var/jenkins_home/sonarqube-token"
+else
+    echo "  No se pudo generar el token de análisis"
+fi
+
+# ─── 7. Crear los 8 proyectos y asignar el Quality Gate ───
 echo ""
 echo "Creando proyectos en SonarQube..."
 
